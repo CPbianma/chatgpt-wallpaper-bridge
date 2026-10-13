@@ -2,38 +2,36 @@
  * Injected into the ChatGPT/Codex desktop app via CDP (Page.addScriptToEvaluateOnNewDocument
  * + Runtime.evaluate). No imports allowed: this file is shipped as source text.
  *
- * Responsibilities:
- *  - own the wallpaper layer (two slots, crossfade) behind the app UI
- *  - install the "glass panel" style that lets the wallpaper show through
- *  - poll the bridge for state (playlist pointer + effects) and follow it
- *  - self-heal: re-append DOM if React wipes it, resume playback, pause when hidden
+ * The app patches window.fetch to an allow-list, so the controller never
+ * fetches: the bridge PUSHES state by evaluating window.__wallpaper.applyState()
+ * and READS diagnostics back from the same call. Media itself loads through
+ * plain <video>/<img> elements, which the bridge serves via Fetch interception.
  */
 (() => {
-  const API = 3;
+  const API = 4;
   const HOST = 'https://wallpaper.local';
   const BOX_ID = 'codex-wallpaper-layer';
   const STYLE_ID = 'codex-wallpaper-style';
-  const POLL_MS = 3000;
   const HEAL_MS = 1000;
   const READY_TIMEOUT_MS = 9000;
 
   const prev = window.__wallpaper;
-  if (prev && prev.api === API) { prev.refresh(); return { reused: true }; }
+  if (prev && prev.api === API) { return { reused: true }; }
   try { prev && prev.destroy(); } catch {}
 
   const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
   const state = {
-    api: API,
     destroyed: false,
     box: null,
-    slots: [],        // [{ el, kind, index }]
-    active: -1,       // which slot is visible
-    currentIndex: -1, // playlist index currently shown
+    slots: [],
+    active: -1,
+    currentIndex: -1,
     epoch: -1,
     fx: null,
+    items: [],
+    diagFailed: null,
     timers: [],
-    lastSwitchAt: 0,
     switching: false,
   };
 
@@ -135,10 +133,10 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     });
   }
 
-  async function show(index, items) {
+  async function show(index) {
     if (state.switching || state.destroyed) return;
     if (index === state.currentIndex && state.active >= 0) return;
-    const item = items[index];
+    const item = state.items[index];
     if (!item) return;
     state.switching = true;
     try {
@@ -146,16 +144,12 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       const el = fillSlot(nextSlot, item, index);
       const ready = await whenReady(el, item.kind);
       if (state.destroyed) return;
-      if (!ready) {
-        // media broken — ask the bridge to skip past it, follow on next poll
-        fetch(`${HOST}/api/skip?i=${index}`).catch(() => {});
-        return;
-      }
+      if (!ready) { state.diagFailed = index; return; }
+      state.diagFailed = null;
       if (item.kind === 'video') { try { await el.play(); } catch {} }
       for (let i = 0; i < 2; i++) state.slots[i].wrap.style.opacity = i === nextSlot ? '1' : '0';
       state.active = nextSlot;
       state.currentIndex = index;
-      state.lastSwitchAt = Date.now();
       const old = state.slots[nextSlot === 0 ? 1 : 0];
       setTimeout(() => {
         if (state.destroyed || !old) return;
@@ -166,30 +160,44 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     }
   }
 
-  /* ---------- bridge sync ---------- */
+  /* ---------- bridge-driven state ---------- */
 
-  async function sync() {
-    if (state.destroyed) return;
-    let s;
-    try {
-      const r = await fetch(`${HOST}/api/state?t=${Date.now()}`, { cache: 'no-store' });
-      if (!r.ok) return;
-      s = await r.json();
-    } catch { return; }
-    if (state.destroyed || !s || !Array.isArray(s.items)) return;
+  async function applyState(s) {
+    if (state.destroyed || !s || !Array.isArray(s.items)) return null;
     const fxChanged = JSON.stringify(s.effects || {}) !== JSON.stringify(state.fx || {});
     state.fx = s.effects || {};
-    if (fxChanged) applyFx();
+    state.items = s.items;
     state.epoch = num(s.epoch, 0);
-    if (s.items.length === 0) return;
-    const want = num(s.index, 0) % s.items.length;
-    await show(want, s.items);
+    if (fxChanged) applyFx();
+    if (s.items.length) {
+      const want = num(s.index, 0) % s.items.length;
+      await show(want);
+    }
+    return diag();
   }
 
+  function diag() {
+    const s = state.active >= 0 ? state.slots[state.active] : null;
+    const v = s && s.el && s.el.tagName === 'VIDEO' ? s.el : null;
+    return {
+      failed: state.diagFailed,
+      index: state.currentIndex,
+      ready: state.active >= 0,
+      playing: v ? !v.paused : null,
+    };
+  }
+
+  /* ---------- self-heal ---------- */
+
   function heal() {
-    if (state.destroyed) return;
-    if (!document.documentElement) return;
-    if (!document.getElementById(BOX_ID)) { state.box = null; ensureBox(); applyFx(); state.currentIndex = -1; sync(); return; }
+    if (state.destroyed || !document.documentElement) return;
+    if (!document.getElementById(BOX_ID)) {
+      state.box = null; state.active = -1; state.slots = [];
+      const idx = state.currentIndex; state.currentIndex = -1;
+      ensureBox(); applyFx();
+      if (idx >= 0) show(idx);
+      return;
+    }
     if (!document.getElementById(STYLE_ID)) ensureStyle();
     if (state.active >= 0) {
       const s = state.slots[state.active];
@@ -208,8 +216,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function start() {
     const boot = () => {
       if (state.destroyed) return;
-      ensureBox(); applyFx(); sync();
-      state.timers.push(setInterval(sync, POLL_MS));
+      ensureBox(); applyFx();
       state.timers.push(setInterval(heal, HEAL_MS));
       document.addEventListener('visibilitychange', onVisibility);
     };
@@ -217,12 +224,12 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     else document.addEventListener('DOMContentLoaded', boot, { once: true });
   }
 
-  /* ---------- public API (used by the CLI over CDP) ---------- */
+  /* ---------- public API (driven by the bridge over CDP) ---------- */
 
   window.__wallpaper = {
     api: API,
-    refresh: sync,
-    state: () => ({ index: state.currentIndex, epoch: state.epoch, fx: state.fx }),
+    applyState,
+    state: diag,
     destroy() {
       state.destroyed = true;
       for (const t of state.timers) clearInterval(t);

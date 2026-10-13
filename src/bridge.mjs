@@ -112,6 +112,10 @@ async function cmdStart() {
   killRecordedBridge();
 
   let cfg = readConfig();
+  const sessions = new Map(); // targetId -> CDP
+  let writingSelf = false;
+  function writeOwnConfig(c) { writingSelf = true; try { writeConfig(c); } finally { setTimeout(() => { writingSelf = false; }, 300); } }
+
   cfg.playlist = cfg.playlist.filter((x) => x && x.path && fs.existsSync(x.path));
   if (!cfg.playlist.length) {
     // first run convenience: seed the playlist with every video wallpaper in the library
@@ -123,10 +127,6 @@ async function cmdStart() {
   }
   advanceIfDue(cfg);
   writeOwnConfig(cfg);
-
-  const sessions = new Map(); // targetId -> CDP
-  let writingSelf = false;
-  function writeOwnConfig(c) { writingSelf = true; try { writeConfig(c); } finally { setTimeout(() => { writingSelf = false; }, 300); } }
 
   async function attach(p) {
     const c = new CDP(p.webSocketDebuggerUrl);
@@ -167,28 +167,6 @@ async function cmdStart() {
     const req = params.request || {};
     const u = new URL(req.url || '/', VIRTUAL_HOST);
     const fulfill = (code, headers, body) => c.send('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: code, responseHeaders: headers, body }).catch(() => {});
-    if (u.pathname === '/api/state') {
-      if (advanceIfDue(cfg)) writeOwnConfig(cfg);
-      const body = JSON.stringify({
-        epoch: cfg.epoch || 0,
-        index: cfg.currentIndex,
-        intervalSec: cfg.intervalSec,
-        order: cfg.order,
-        effects: cfg.effects,
-        items: cfg.playlist.map((x) => ({ kind: x.kind, title: x.title })),
-      });
-      return fulfill(200, [{ name: 'Content-Type', value: 'application/json' }, { name: 'Cache-Control', value: 'no-store' }, { name: 'Access-Control-Allow-Origin', value: '*' }], Buffer.from(body).toString('base64'));
-    }
-    if (u.pathname === '/api/skip') {
-      const i = Number(u.searchParams.get('i'));
-      if (Number.isInteger(i) && i === cfg.currentIndex && cfg.playlist.length > 1) {
-        cfg.currentIndex = nextIndex(cfg, cfg.currentIndex);
-        cfg.lastSwitchAt = Date.now();
-        writeOwnConfig(cfg);
-        console.log(`[bridge] skipped unreadable item #${i}`);
-      }
-      return fulfill(204, [{ name: 'Access-Control-Allow-Origin', value: '*' }]);
-    }
     const m = /^\/media\/(\d+)$/.exec(u.pathname);
     if (m) {
       const item = cfg.playlist[Number(m[1])];
@@ -196,6 +174,42 @@ async function cmdStart() {
       return serveFile(c, params, item.path);
     }
     return fulfill(404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('not found').toString('base64'));
+  }
+
+  // The app patches window.fetch to an allow-list, so state can't be pulled by
+  // the page — push it instead: every couple of seconds, advance the rotation
+  // pointer if due and evaluate applyState() inside each attached page. The
+  // same call reads diagnostics back (e.g. media that failed to load → skip).
+  function statePayload() {
+    return {
+      epoch: cfg.epoch || 0,
+      index: cfg.currentIndex,
+      intervalSec: cfg.intervalSec,
+      order: cfg.order,
+      effects: cfg.effects,
+      items: cfg.playlist.map((x) => ({ kind: x.kind, title: x.title })),
+    };
+  }
+
+  async function pushState() {
+    if (advanceIfDue(cfg)) {
+      writeOwnConfig(cfg);
+      const cur = cfg.playlist[cfg.currentIndex];
+      if (cur) console.log(`[bridge] → ${cur.title}`);
+    }
+    const expr = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(statePayload())})`;
+    for (const [id, c] of sessions) {
+      try {
+        const r = await c.send('Runtime.evaluate', { expression: expr, returnByValue: true });
+        const d = r?.result?.value;
+        if (d && d.failed != null && d.failed === cfg.currentIndex && cfg.playlist.length > 1) {
+          cfg.currentIndex = nextIndex(cfg, cfg.currentIndex);
+          cfg.lastSwitchAt = Date.now();
+          writeOwnConfig(cfg);
+          console.log(`[bridge] skipped unreadable wallpaper #${d.failed + 1}`);
+        }
+      } catch { drop(id); }
+    }
   }
 
   fs.writeFileSync(PID_FILE, String(process.pid), 'utf8');
@@ -208,9 +222,12 @@ async function cmdStart() {
   };
   await attachLoop();
   const timer = setInterval(attachLoop, ATTACH_POLL_MS);
+  const pushTimer = setInterval(pushState, 2500);
+  await pushState();
 
   const shutdown = () => {
     clearInterval(timer);
+    clearInterval(pushTimer);
     try { if (Number(fs.readFileSync(PID_FILE, 'utf8')) === process.pid) fs.unlinkSync(PID_FILE); } catch {}
     for (const c of sessions.values()) c.close();
     process.exit(0);
@@ -249,7 +266,21 @@ async function serveFile(c, params, file) {
 
 /* ---------------- one-shot commands ---------------- */
 
-async function pokePages(expression = 'window.__wallpaper && window.__wallpaper.refresh()') {
+// Nudge every open page to apply the latest config immediately (the running
+// bridge would push it within a couple of seconds anyway).
+async function pokePages(expression) {
+  if (!expression) {
+    const cfg = readConfig();
+    const payload = {
+      epoch: cfg.epoch || 0,
+      index: cfg.currentIndex,
+      intervalSec: cfg.intervalSec,
+      order: cfg.order,
+      effects: cfg.effects,
+      items: cfg.playlist.map((x) => ({ kind: x.kind, title: x.title })),
+    };
+    expression = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(payload)})`;
+  }
   const pages = await appPages();
   let ok = 0;
   for (const p of pages) {
