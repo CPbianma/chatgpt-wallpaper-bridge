@@ -1,5 +1,7 @@
 // Config persistence for the ChatGPT Wallpaper bridge.
 // Lives in %LOCALAPPDATA%\ChatGPT-Wallpaper\config.json (machine-local, not in the repo).
+// v2 schema: named playlists, extended effects, transitions, playback, occlusion,
+// fx layer, parallax, theme-follow, hidden library items. Old v1 configs migrate on read.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -7,33 +9,93 @@ import os from 'node:os';
 export const APP_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChatGPT-Wallpaper');
 export const CONFIG_FILE = path.join(APP_DIR, 'config.json');
 export const PID_FILE = path.join(APP_DIR, 'bridge.pid');
+export const PRESET_DIR = path.join(APP_DIR, 'presets');
+
+export const DEFAULT_FX = {
+  opacity: 0.32,        // wallpaper layer opacity
+  brightness: 0.68,     // wallpaper CSS brightness
+  contrast: 1.0,        // wallpaper CSS contrast
+  saturate: 1.15,       // wallpaper CSS saturate
+  blur: 0,              // wallpaper CSS blur px
+  dim: 0,               // black overlay above wallpaper (0..0.8) — 暗化
+  panX: 50,             // object-position % (0..100)
+  panY: 50,
+  zoom: 1.0,            // extra scale on media (1..3)
+  flipH: false,         // horizontal mirror
+  rate: 1.0,            // video playbackRate (0.25..3)
+  volume: 0,            // 0..1 (0 = muted)
+  fadeMs: 800,          // crossfade duration base
+  transition: 'fade',   // cut | fade | slide | wipe | iris | zoom
+  transitionSpeed: 1.0, // 0.5 fast? actually multiplier: 0.6 fast, 1 standard, 1.8 slow
+  transitionDir: 'left',// for slide/wipe: left|right|up|down
+  panelAlpha: 0.55,     // main conversation surface alpha (light theme)
+  panelAlphaDark: 0.55, // main conversation surface alpha (dark theme)
+  panelBlur: 22,        // backdrop blur for panels
+  composerAlpha: 0.66,  // composer surface alpha
+  autoTint: true,       // theme-follow: glass tint follows wallpaper brightness
+};
+
+export const DEFAULT_OCCLUSION = {
+  hidden: true,   // pause when window hidden/minimized
+  blur: false,    // pause when window loses focus
+  battery: false, // pause on battery power
+};
+
+export const DEFAULT_FXLAYER = {
+  click: { enabled: false, style: 'ripple', color: 'rainbow', opacity: 0.8, size: 1.0 },  // ripple | sparks | both
+  trail: { enabled: false, style: 'comet', color: 'rainbow', opacity: 0.8, width: 1.0, ttl: 1.0 }, // comet | stardust
+};
+
+export const DEFAULT_PARALLAX = { enabled: false, wallpaperPct: 1.0, uiPct: 0 };
 
 export const DEFAULTS = {
-  playlist: [],          // [{ kind: 'video'|'image', path, title, id? }]
+  playlists: [],          // [{ key, name, items: [{kind,path,title,id}], intervalSec, order }]
+  activePlaylist: null,   // key
   currentIndex: 0,
-  lastSwitchAt: 0,       // epoch ms; bridge advances rotation from this
-  intervalSec: 600,      // rotation interval
-  order: 'sequential',   // 'sequential' | 'shuffle'
-  effects: {
-    opacity: 0.32,       // wallpaper layer opacity
-    brightness: 0.68,    // wallpaper CSS brightness
-    saturate: 1.15,      // wallpaper CSS saturate
-    blur: 0,             // wallpaper CSS blur px
-    fadeMs: 800,         // crossfade duration
-    panelAlpha: 0.55,    // main conversation surface alpha (light theme)
-    panelAlphaDark: 0.55,// main conversation surface alpha (dark theme)
-    panelBlur: 22,       // backdrop blur for panels
-    composerAlpha: 0.66, // composer surface alpha
-  },
+  lastSwitchAt: 0,
+  paused: false,
+  fx: DEFAULT_FX,
+  occlusion: DEFAULT_OCCLUSION,
+  fxLayer: DEFAULT_FXLAYER,
+  parallax: DEFAULT_PARALLAX,
+  hidden: [],             // library ids hidden by the user
+  epoch: 0,
+  libEpoch: 0,
+};
+
+const deep = (base, over) => {
+  const out = { ...base };
+  for (const k of Object.keys(over || {})) {
+    if (over[k] && typeof over[k] === 'object' && !Array.isArray(over[k]) && base[k] && typeof base[k] === 'object') out[k] = deep(base[k], over[k]);
+    else out[k] = over[k];
+  }
+  return out;
 };
 
 export function readConfig() {
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
-  const merged = { ...DEFAULTS, ...cfg, effects: { ...DEFAULTS.effects, ...(cfg.effects || {}) } };
-  if (!Array.isArray(merged.playlist)) merged.playlist = [];
-  if (merged.order !== 'shuffle') merged.order = 'sequential';
+  // v1 -> v2 migration: { playlist, intervalSec, order, effects } -> playlists[0]
+  if (!Array.isArray(cfg.playlists)) {
+    cfg.playlists = [];
+    if (Array.isArray(cfg.playlist) && cfg.playlist.length) {
+      cfg.playlists.push({
+        key: 'default', name: '默认列表',
+        items: cfg.playlist,
+        intervalSec: Number.isFinite(cfg.intervalSec) ? cfg.intervalSec : 600,
+        order: cfg.order === 'shuffle' ? 'shuffle' : 'sequential',
+      });
+      cfg.activePlaylist = 'default';
+    }
+  }
+  const merged = deep(DEFAULTS, cfg);
+  if (!merged.playlists.length) merged.activePlaylist = null;
+  if (!merged.playlists.some((p) => p.key === merged.activePlaylist)) merged.activePlaylist = merged.playlists[0]?.key ?? null;
   return merged;
+}
+
+export function activeList(cfg) {
+  return cfg.playlists.find((p) => p.key === cfg.activePlaylist) || null;
 }
 
 export function writeConfig(cfg) {
@@ -44,7 +106,6 @@ export function writeConfig(cfg) {
 }
 
 export const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
-
 export function numberArg(value, fallback, lo = -Infinity, hi = Infinity) {
   const n = Number(value);
   return Number.isFinite(n) ? clamp(n, lo, hi) : fallback;

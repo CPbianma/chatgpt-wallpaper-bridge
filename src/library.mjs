@@ -1,8 +1,10 @@
 // Wallpaper Engine library discovery: finds Steam workshop items (app 431960),
 // parses project.json, and resolves playable media for the bridge.
 //   - video wallpapers  -> the video file itself
-//   - scene/web/other   -> their preview image (static stand-in; real-time
-//                          scene rendering is a separate, larger effort)
+//   - scene/web/other   -> their preview image (static stand-in until WebWallGL
+//                          live rendering lands; scene-embedded MP4 is phase 2)
+// Each item also carries contentrating, schemeColor and a thumbnail path for
+// the picker UI.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -45,6 +47,25 @@ export function workshopRoots() {
   return [...out].filter((p) => fs.existsSync(p));
 }
 
+// "0.75 0.75 0.75" (0..1 floats) -> [r,g,b] 0..255, or null. All-zero = unset (WE default).
+export function parseSchemeColor(meta) {
+  const v = meta?.general?.properties?.schemecolor?.value;
+  if (typeof v !== 'string') return null;
+  const parts = v.trim().split(/\s+/).map(Number);
+  if (parts.length < 3 || parts.some((x) => !Number.isFinite(x))) return null;
+  if (parts[0] === 0 && parts[1] === 0 && parts[2] === 0) return null;
+  return parts.slice(0, 3).map((x) => Math.round(Math.min(1, Math.max(0, x)) * 255));
+}
+
+// contentrating: "Everyone" | "Questionable" | "Mature" | missing
+export function parseRating(meta) {
+  const r = (meta?.contentrating || '').toLowerCase();
+  if (r === 'everyone') return 'everyone';
+  if (r === 'questionable') return 'pg13';
+  if (r === 'mature') return 'mature';
+  return 'unrated';
+}
+
 // One workshop item -> a bridge-playable entry, or null if nothing usable.
 function readItem(root, id) {
   const dir = path.join(root, id);
@@ -55,13 +76,20 @@ function readItem(root, id) {
   const weType = (meta.type || 'unknown').toLowerCase();
   const file = meta.file ? path.join(dir, meta.file) : null;
   const preview = meta.preview ? path.join(dir, meta.preview) : null;
+  const hasPreview = preview && fs.existsSync(preview) && isImageFile(preview);
+  const base = {
+    id, title, weType,
+    rating: parseRating(meta),
+    schemeColor: parseSchemeColor(meta),
+    thumb: hasPreview ? preview : null,
+  };
   if (weType === 'video' && file && fs.existsSync(file) && isVideoFile(file))
-    return { kind: 'video', path: file, title, id, weType };
+    return { ...base, kind: 'video', path: file };
   // Scene / web / application / video-without-file: fall back to the preview image.
-  if (preview && fs.existsSync(preview) && isImageFile(preview))
-    return { kind: 'image', path: preview, title: `${title} (preview)`, id, weType };
+  if (hasPreview)
+    return { ...base, kind: 'image', path: preview, title: `${title} (preview)` };
   if (file && fs.existsSync(file) && isImageFile(file))
-    return { kind: 'image', path: file, title, id, weType };
+    return { ...base, kind: 'image', path: file };
   return null;
 }
 
