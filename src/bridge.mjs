@@ -28,7 +28,13 @@ import { extractSceneVideoFromPkgFile, extractSceneVideoFromDir } from './scene-
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INJECT_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'inject.js'), 'utf8');
 const PANEL_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'panel.js'), 'utf8');
-const INJECT_ALL = INJECT_SRC + '\n;' + PANEL_SRC;
+// Content-build tags ride ahead of the sources so same-API-version edits still
+// force a remount — the page-side reuse guards compare them (a stale mounted
+// panel once survived a behavior fix because PANEL_API wasn't bumped).
+import { createHash } from 'node:crypto';
+const srcHash = (s) => createHash('sha1').update(s).digest('hex').slice(0, 10);
+const INJECT_ALL = `;window.__weInjectBuild=${JSON.stringify(srcHash(INJECT_SRC))};window.__wePanelBuild=${JSON.stringify(srcHash(PANEL_SRC))};\n`
+  + INJECT_SRC + '\n;' + PANEL_SRC;
 const VIRTUAL_HOST = 'https://wallpaper.local';
 const SCENE_LIVE_PREFIX = '/wallpaper-engine/scene-live/';
 const MEDIA_ORIGIN_FILE = path.join(APP_DIR, 'media-origin');

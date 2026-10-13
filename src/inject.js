@@ -25,8 +25,9 @@
   const OCCLUSION_RECHECK_MS = 3000;
 
   const prev = window.__wallpaper;
-  // Reuse only a same-version controller whose layer is actually in the DOM.
-  if (prev && prev.api === API && document.getElementById(BOX_ID)) return { reused: true };
+  // Reuse only a same-version, same-build controller whose layer is actually
+  // in the DOM (build tag rides ahead of this source — any edit forces remount).
+  if (prev && prev.api === API && prev.build === window.__weInjectBuild && document.getElementById(BOX_ID)) return { reused: true };
   try { prev && prev.destroy(); } catch {}
 
   const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -974,6 +975,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   window.__wallpaper = {
     api: API,
+    build: window.__weInjectBuild,
     applyState,
     state: diag,
     fullState: () => ({ payload: state.lastPayload, lib: state.lib, tint: state.tint, occluded: state.occluded, propsDefs: state.propsDefs, propsId: state.propsId, propsValues: state.propsValues }),

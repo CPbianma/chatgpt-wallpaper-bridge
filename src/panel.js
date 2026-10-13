@@ -8,9 +8,10 @@
   const wp = window.__wallpaper;
   if (!wp) return { ok: false, reason: 'controller missing' };
   const prev = window.__wallpaperPanel;
-  // Reuse only a same-version panel that actually mounted; otherwise rebuild
-  // (guards against half-initialized instances and stale code on re-evaluate).
-  if (prev && prev.api === PANEL_API && document.getElementById('we-panel-root')) return { reused: true };
+  // Reuse only a same-version, same-build panel that actually mounted (the
+  // build tag rides ahead of this source, so any panel.js edit forces a
+  // rebuild — no more stale handlers surviving a fix).
+  if (prev && prev.api === PANEL_API && prev.build === window.__wePanelBuild && document.getElementById('we-panel-root')) return { reused: true };
   try { prev && prev.destroy(); } catch {}
 
   const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -457,6 +458,7 @@
 
   window.__wallpaperPanel = {
     api: PANEL_API,
+    build: window.__wePanelBuild,
     open: () => { mount(); if (!root.firstChild) togglePanel(); },
     close: () => { if (root) root.innerHTML = ''; },
     destroy() {
