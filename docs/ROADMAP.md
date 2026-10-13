@@ -31,7 +31,7 @@
 - 明暗双主题玻璃、面板/输入框独立透明度与磨砂、隐藏管理、内容分级（Everyone/PG13/Mature/未分级）
 - 库变更自动重扫（60s）、配置热加载、自愈注入、多页面同步
 
-### 🚧 Phase 2（进行中）：Scene/Web 实时渲染（WebWallGL）
+### ✅ Phase 2（已完成）：Scene/Web 实时渲染（WebWallGL）
 
 dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0、~5.8k 行）：
 
@@ -50,8 +50,8 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 
 - [x] **开机自启**（`autostart [--off]`：HKCU Run 键 → UTF-16 BOM VBS 隐藏启动器——中文用户名路径安全，无控制台窗口闪烁、免 Task Scheduler 提权）
 - [x] **自定义壁纸导入**（`import <files...>` 拷贝进 `uploads/`，id=u-<sha1>，与库同管道参与轮换；页面端因 fetch 白名单不做上传 UI，走 CLI）
-- [ ] ffmpeg 帧率上限转码（NVENC → libx264，缓存键 sha256(abs|mtime|fps)，先播原片转好自动切）
-- [ ] 从 WE 客户端播放列表导入（WE config.json）
+- [ ] ffmpeg 帧率上限转码（NVENC → libx264，缓存键 sha256(abs|mtime|fps)，先播原片转好自动切）——**前提：系统需有 ffmpeg**（当前机器未安装；现有视频都流畅，按需再做）
+- [x] 从 WE 客户端播放列表导入（`import-we [--apply N]`：读 `<steamapps>/common/wallpaper_engine/config.json` 全 profile，分钟延迟+随机标志映射；实测导入「轮换」35 张全命中本地库）
 - [ ] 吉祥物拉绳（立绘 + 下拉开抽屉；当前是 FAB 简化版）
 - [ ] 自定义会话头像（MutationObserver 消息行注入，锚点需重钉到 ChatGPT DOM）
 - [ ] 字体 / 光标自定义（系统字体枚举）
