@@ -42,8 +42,9 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 - [x] 活层接入既有设施：过场动画 / 遮挡暂停三档（diffed `__wp.pause/resume/setVolume`——冗余 resume 会重置帧计量器）/ 主题随壁纸（同源 rAF 内抓 WebGL 画布投票）/ 音量
 - [x] 壁纸属性面板（project.json `general.properties` → dsh 校准版解析器 `src/we-props.mjs`：order 浮点+码位、combo 保类型、localization 逐键回退、editable:false 丢弃；面板播放页渲染 slider/toggle/color/combo/file 控件，`props.set` 经 Image 命令通道回桥、按壁纸持久化 `cfg.wallpaperProps`，页面 `__wp.updateWebProps` JSON 差分热下发）
 - [x] 帧率档（15/30/60，`live.set`；`__wp.setSceneFps` 差分热更新不重建槽位）+ 实时渲染总开关（关=回退预览图）+ 场景音量（`setVolume` 差分）
-- [ ] live 抓帧回填（canvas readback → 桥缓存，轮换时秒切）
-- [ ] 过场补 `bars`（7 板百叶窗，clip-path polygon 4N+1 点插值）
+- [x] live 抓帧回填（同源 rAF 内抓 WebGL 画布 → 480px JPEG → Image GET `/api/frame` 落盘 `frames/<id>.jpg`；轮换回来时静帧先铺满槽位、渲染器就绪后 700ms 淡入覆盖——大包预热几秒也不再黑屏）
+- [x] 过场补 `bars`（7 板百叶窗：单 polygon 每板 5 顶点、起止等点数 CSS 插值；显式层叠——淡出/推移/百叶窗旧层在上让位，擦除/光圈/缩放新层在上生长）
+- [ ] 降级链中间档：作者内嵌 MP4（pkg-read 提取，live 失败但 pkg 可读时降级播内嵌视频而非静图）
 
 ### 📋 Phase 3（增强）
 

@@ -32,6 +32,7 @@ const VIRTUAL_HOST = 'https://wallpaper.local';
 const SCENE_LIVE_PREFIX = '/wallpaper-engine/scene-live/';
 const MEDIA_ORIGIN_FILE = path.join(APP_DIR, 'media-origin');
 const LOG_FILE = path.join(APP_DIR, 'bridge.log');
+const FRAMES_DIR = path.join(APP_DIR, 'frames'); // live frame backfill cache (per-wallpaper JPEG stills)
 const CHUNK_BYTES = 2 * 1024 * 1024;
 const ATTACH_POLL_MS = 3000;
 const PUSH_MS = 2500;
@@ -303,6 +304,27 @@ async function cmdStart() {
         return fulfill(c, params, 403, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('forbidden').toString('base64'));
       return serveFile(c, params, target);
     }
+    // live frame backfill: the page posts one settled renderer frame per
+    // activation (base64url in the query — the Image GET channel), the bridge
+    // caches it on disk, and /frame/<id> serves it as an instant placeholder
+    // while a live renderer warms up on rotation
+    if (u.pathname === '/api/frame') {
+      const id = (u.searchParams.get('id') || '').replace(/[^\w-]/g, '');
+      const d = u.searchParams.get('d') || '';
+      if (id && d && d.length <= 550000) {
+        try {
+          fs.mkdirSync(FRAMES_DIR, { recursive: true });
+          fs.writeFileSync(path.join(FRAMES_DIR, `${id}.jpg`), Buffer.from(d, 'base64url'));
+        } catch {}
+      }
+      return fulfill(c, params, 204, [{ name: 'Cache-Control', value: 'no-store' }], '');
+    }
+    const fm = /^\/frame\/([\w-]+)$/.exec(u.pathname);
+    if (fm) {
+      const file = path.join(FRAMES_DIR, `${fm[1]}.jpg`);
+      if (fs.existsSync(file)) return serveFile(c, params, file);
+      return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no frame').toString('base64'));
+    }
     // playlist media
     const m = /^\/media\/(\d+)$/.exec(u.pathname);
     if (m) {
@@ -372,6 +394,13 @@ async function cmdStart() {
           forSession.propsKey = key;
         }
       }
+    }
+    // cached renderer frame for the current live wallpaper (instant placeholder)
+    {
+      const item = activeList(cfg)?.items[cfg.currentIndex];
+      p.liveStill = (p.live && item?.id && fs.existsSync(path.join(FRAMES_DIR, `${item.id}.jpg`)))
+        ? `${VIRTUAL_HOST}/frame/${item.id}`
+        : null;
     }
     if (forSession && forSession.libEpoch !== (cfg.libEpoch || 0)) {
       p.lib = libPayload();
@@ -536,6 +565,7 @@ async function pokePages(expression) {
       fx: cfg.fx, occlusion: cfg.occlusion, fxLayer: cfg.fxLayer, parallax: cfg.parallax,
       live,
       liveSettings: cfg.live,
+      liveStill: (live && item?.id && fs.existsSync(path.join(FRAMES_DIR, `${item.id}.jpg`))) ? `${VIRTUAL_HOST}/frame/${item.id}` : null,
     };
     expression = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(payload)})`;
   }

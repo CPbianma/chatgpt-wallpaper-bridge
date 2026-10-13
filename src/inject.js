@@ -286,17 +286,63 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     } catch { finish(null); }
   }
 
+  // 抓帧回填 (dsh live frame backfill): grab one settled frame as a small JPEG
+  // and hand it to the bridge; on the next rotation onto this wallpaper the
+  // still covers the slot instantly while the renderer warms up (pkg fetch +
+  // shader compile can take seconds on big scenes).
+  function captureLiveFrame(frame, cb) {
+    let done = false;
+    const finish = (url) => { if (!done) { done = true; cb(url); } };
+    setTimeout(() => finish(null), 4000); // hidden page: rAF never fires
+    try {
+      const w = frame.contentWindow;
+      w.requestAnimationFrame(() => {
+        try {
+          const src = w.document.querySelector('canvas');
+          if (!src || !src.width) return finish(null);
+          const k = Math.min(1, 480 / src.width);
+          const cv = document.createElement('canvas');
+          cv.width = Math.max(2, Math.round(src.width * k));
+          cv.height = Math.max(2, Math.round(src.height * k));
+          cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height);
+          finish(cv.toDataURL('image/jpeg', 0.62));
+        } catch { finish(null); }
+      });
+    } catch { finish(null); }
+  }
+
+  function sendFrame(id, dataUrl) {
+    try {
+      const b64 = dataUrl.split(',')[1].replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+      if (!b64 || b64.length > 550000) return; // ~400KB decoded cap
+      const im = new Image();
+      im.src = `${HOST}/api/frame?id=${encodeURIComponent(id)}&d=${b64}`;
+    } catch {}
+  }
+
   /* ================= media & transitions ================= */
 
   function fillSlot(slotIdx, item, index, live) {
     const slot = state.slots[slotIdx];
-    if (slot.el) { try { slot.el.pause && slot.el.pause(); } catch {} slot.wrap.innerHTML = ''; slot.el = null; slot.liveCtl = null; }
+    if (slot.el) { try { slot.el.pause && slot.el.pause(); } catch {} slot.wrap.innerHTML = ''; slot.el = null; slot.liveCtl = null; slot.still = null; }
     if (live && state.liveDoc) {
       const f = document.createElement('iframe');
       f.setAttribute('allow', 'autoplay');
       f.setAttribute('title', 'wallpaper-live');
       Object.assign(f.style, { width: '100%', height: '100%', border: '0', display: 'block' });
       f.srcdoc = state.liveDoc;
+      // cached still under the (initially transparent) iframe: the wallpaper
+      // appears instantly, the live renderer fades in over it when ready
+      if (state.liveStill) {
+        const still = document.createElement('img');
+        still.alt = ''; still.draggable = false;
+        Object.assign(still.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover' });
+        still.src = state.liveStill;
+        slot.wrap.appendChild(still);
+        slot.still = still;
+        f.style.opacity = '0';
+        f.style.transition = 'opacity 700ms ease';
+      }
       slot.wrap.appendChild(f);
       slot.el = f; slot.index = index; slot.kind = 'live';
       slot.liveCtl = { cfg: liveCfgFor(live), budgetMs: num(live.budgetMs, 0), configured: false, appliedPlaying: null, appliedVolume: null, lastFrameAt: Date.now(), rescued: false };
@@ -432,6 +478,20 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       if (!ready) { state.diagFailed = index; return; }
       state.diagFailed = null;
       if (kind === 'video' && !state.paused && !state.occluded) { try { await el.play(); } catch {} }
+      if (kind === 'live') {
+        const st = state.slots[nextSlot];
+        if (st.still) {
+          st.el.style.opacity = '1'; // renderer fades in over its own cached frame
+          setTimeout(() => { try { st.still?.remove(); } catch {} st.still = null; }, 900);
+        }
+        // backfill the frame cache once the scene has settled (for instant
+        // display the next time rotation lands on this wallpaper)
+        const capId = item.id;
+        if (capId) setTimeout(() => {
+          if (state.destroyed || state.currentIndex !== index || state.slots[state.active]?.el !== st.el) return;
+          captureLiveFrame(st.el, (url) => { if (url) sendFrame(capId, url); });
+        }, 2500);
+      }
       const dur = runTransition(state.slots[nextSlot].wrap, oldSlot >= 0 ? state.slots[oldSlot].wrap : null);
       state.active = nextSlot;
       state.currentIndex = index;
@@ -781,6 +841,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     }
     if (typeof s.liveDoc === 'string' && s.liveDoc) state.liveDoc = s.liveDoc;
     if (s.liveSettings) state.liveSettings = s.liveSettings;
+    if ('liveStill' in s) state.liveStill = s.liveStill || null;
     if (Array.isArray(s.propsDefs)) state.propsDefs = s.propsDefs;
     if (typeof s.propsId === 'string') state.propsId = s.propsId;
     if (s.propsValues && typeof s.propsValues === 'object') {
