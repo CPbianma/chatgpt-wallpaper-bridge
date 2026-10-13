@@ -35,6 +35,7 @@ export const DEFAULT_FX = {
   contentAlpha: 0.62,   // transcript card alpha (readability backing)
   contentBlur: 18,      // transcript card backdrop blur
   autoTint: true,       // theme-follow: glass tint follows wallpaper brightness
+  fontFamily: '',       // app UI font override ('' = app default)
 };
 
 export const DEFAULT_OCCLUSION = {

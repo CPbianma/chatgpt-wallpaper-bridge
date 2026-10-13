@@ -67,6 +67,7 @@
     trailPrev: { x: -1, y: -1 }, trailAcc: 0,
     // parallax
     parTarget: { x: 0, y: 0 }, parCurrent: { x: 0, y: 0 }, parRaf: 0,
+    parMouse: { x: 0, y: 0 }, uiCurrent: { x: 0, y: 0 }, uiTargets: [],
   };
 
   /* ================= DOM ================= */
@@ -108,7 +109,13 @@
     const DT = glass(22, 22, 27, Math.min(1, ca + 0.06), cb) + 'border-radius:14px;';
     const M = 'main[class*="MainContentSurface"]', C = 'main [class*="ComposerLayoutRoot"]';
     const T = 'main [class*="transcriptContent"]';
-    return `
+    // UI font override: sanitize to a bare family list (no CSS breakout), keep
+    // code/mono blocks on their own stack
+    const fam = String(fx.fontFamily || '').replace(/[^\w ,'"一-鿿-]/g, '').trim();
+    const fontRule = fam
+      ? `body,button,input,textarea,select,[contenteditable="true"]{font-family:${fam},system-ui,"Microsoft YaHei",sans-serif!important}\n`
+      : '';
+    return fontRule + `
 html,body,#root{background:transparent!important}
 html:not([data-we-tint]) ${M}{${L}}
 html:not([data-we-tint])[data-theme=dark] ${M}{${D}}
@@ -812,7 +819,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function onPointerMove(e) {
     if (state.parallaxCfg?.enabled) {
       const pct = num(state.parallaxCfg.wallpaperPct, 1);
-      state.parTarget = { x: 2 * pct / 100 * (e.clientX - innerWidth / 2), y: 2 * pct / 100 * (e.clientY - innerHeight / 2) };
+      state.parMouse = { x: e.clientX - innerWidth / 2, y: e.clientY - innerHeight / 2 };
+      state.parTarget = { x: 2 * pct / 100 * state.parMouse.x, y: 2 * pct / 100 * state.parMouse.y };
       pumpParallax();
     }
     if (!fxEnabled() || !state.fxLayer?.trail?.enabled) return;
@@ -824,6 +832,25 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   /* ================= parallax ================= */
 
+  // UI-group parallax anchors (semantic class slices; a miss simply means no
+  // motion for that group — never an error). Wallpaper moves opposite the
+  // cursor (far layer); these move WITH it, damped (near layers) — the
+  // differential is the depth. CSS `translate` property only, layout untouched.
+  const UI_PAR_SELS = ['main [class*="transcriptContent"]', 'main [class*="ComposerLayoutRoot"]', 'aside[class*="LeftPanel"]'];
+
+  function refreshUiTargets() {
+    state.uiTargets = UI_PAR_SELS.map((sel) => { try { return document.querySelector(sel); } catch { return null; } }).filter(Boolean);
+  }
+
+  function applyUiParallax() {
+    const pc = state.parallaxCfg || {};
+    const uiPct = pc.enabled ? num(pc.uiPct, 0) : 0;
+    const tx = uiPct ? `${(state.uiCurrent.x).toFixed(2)}px ${(state.uiCurrent.y).toFixed(2)}px` : '';
+    if (!Array.isArray(state.uiTargets)) state.uiTargets = [];
+    if (uiPct && !state.uiTargets.length) refreshUiTargets();
+    for (const el of state.uiTargets) { try { if (el.isConnected) el.style.translate = tx; } catch {} }
+  }
+
   function pumpParallax() {
     if (state.parRaf || state.destroyed) return;
     state.parRaf = requestAnimationFrame(parFrame);
@@ -832,13 +859,23 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     state.parRaf = 0;
     if (state.destroyed) return;
     if (!state.parallaxCfg?.enabled) {
-      if (state.box && state.box.style.translate) state.box.style.translate = '';
+      if (state.box && state.box.style.translate) { state.box.style.translate = ''; state.box.style.scale = ''; }
+      if (state.uiTargets?.length) { for (const el of state.uiTargets) { try { el.style.translate = ''; } catch {} } state.uiCurrent = { x: 0, y: 0 }; }
       return;
     }
     const k = 1 - Math.exp(-(t - (state.parLastT || t)) / 90);
     state.parLastT = t;
     const dx = state.parTarget.x - state.parCurrent.x, dy = state.parTarget.y - state.parCurrent.y;
-    if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) return;
+    // UI groups: independent channel — normalized cursor * uiPct * 4px, eased
+    // the same way; moves WITH the cursor (near layer) while the wallpaper
+    // moves against it (far layer)
+    const uiPct = num(state.parallaxCfg.uiPct, 0);
+    const m = state.parMouse || { x: 0, y: 0 };
+    const utx = (m.x / (innerWidth / 2)) * uiPct * 4, uty = (m.y / (innerHeight / 2)) * uiPct * 4;
+    const uiDx = utx - state.uiCurrent.x, uiDy = uty - state.uiCurrent.y;
+    state.uiCurrent.x += uiDx * k; state.uiCurrent.y += uiDy * k;
+    applyUiParallax();
+    if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05 && Math.abs(uiDx) < 0.05 && Math.abs(uiDy) < 0.05) return;
     state.parCurrent.x += dx * k; state.parCurrent.y += dy * k;
     ensureBox().style.translate = `${-state.parCurrent.x.toFixed(2)}px ${-state.parCurrent.y.toFixed(2)}px`;
     // wallpaper edges must over-scan so parallax never reveals the void
@@ -932,6 +969,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     // the app may re-apply its stored theme on navigation — re-assert ours
     if (state.tint && !state.userThemeOverride && state.fx?.autoTint)
       applyTheme(state.tint);
+    // app navigation remounts UI nodes — re-anchor parallax targets
+    if (state.parallaxCfg?.enabled && num(state.parallaxCfg.uiPct, 0) > 0) { refreshUiTargets(); applyUiParallax(); }
     // live heartbeat: the renderer must keep producing frames while the
     // wallpaper is meant to animate ({fps,running} over a recent window).
     // One resume self-rescue, then report as failed so the bridge degrades
@@ -991,6 +1030,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       document.getElementById(BOX_ID)?.remove();
       document.getElementById(STYLE_ID)?.remove();
       document.getElementById(FXC_ID)?.remove();
+      if (state.uiTargets?.length) for (const el of state.uiTargets) { try { el.style.translate = ''; } catch {} }
       document.documentElement.removeAttribute('data-we-tint');
       // put the app's theme back the way we found it (dsh: 壁纸退场放回原偏好)
       if (state.initialTheme) document.documentElement.setAttribute('data-theme', state.initialTheme);

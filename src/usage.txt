@@ -45,6 +45,7 @@ Commands:
     --transition-speed <x>         0.4..3 (multiplies --fade-ms base)
     --panel-alpha --panel-alpha-dark --panel-blur --composer-alpha
     --auto-tint / --no-auto-tint   glass tint follows wallpaper brightness
+    --font <family>                app UI font ('' = app default)
   help                  Show this text.
 
 Config: %LOCALAPPDATA%\ChatGPT-Wallpaper\config.json (auto-migrated from v1).

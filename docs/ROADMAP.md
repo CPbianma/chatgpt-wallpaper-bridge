@@ -54,8 +54,9 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 - [x] 从 WE 客户端播放列表导入（`import-we [--apply N]`：读 `<steamapps>/common/wallpaper_engine/config.json` 全 profile，分钟延迟+随机标志映射；实测导入「轮换」35 张全命中本地库）
 - [ ] 吉祥物拉绳（立绘 + 下拉开抽屉；当前是 FAB 简化版）
 - [ ] 自定义会话头像（MutationObserver 消息行注入，锚点需重钉到 ChatGPT DOM）
-- [ ] 字体 / 光标自定义（系统字体枚举）
-- [ ] 界面组视差（输入框/会话区/侧栏分档——需重钉 ChatGPT 锚点，谨慎）
+- [x] 字体自定义（见上；光标自定义暂不做——全局 cursor 样式会与应用交互态打架，收益低风险高）
+- [x] **界面组视差**（`uiPct`：对话区 `transcriptContent` / 输入框 `ComposerLayoutRoot` / 侧栏 `aside[class*="LeftPanel"]` 三锚点语义选择器，正向随光标浅移（uiPct×4px 满幅）× 壁纸反向深移=纵深差；独立缓动通道不受 wallpaperPct 影响；CSS `translate` 独立属性不碰布局；锚点失配=该组不动，无破坏；heal 每秒重锚定 React 重挂载节点）
+- [x] **界面字体自定义**（`fx.fontFamily`： curated 字体列表 + 自定义名输入，CSS 注入只换界面文字、代码块保持等宽；注入字符串消毒防 CSS 逃逸）
 
 ### ❌ 不迁移（宿主强绑定或无意义）
 

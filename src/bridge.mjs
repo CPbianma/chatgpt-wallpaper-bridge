@@ -53,7 +53,7 @@ const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'start';
 const rest = cmd === argv[0] ? argv.slice(1) : argv;
 const opt = (name) => { const i = rest.indexOf(name); return i >= 0 && i + 1 < rest.length ? rest[i + 1] : undefined; };
 const hasFlag = (name) => rest.includes(name);
-const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps']);
+const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps', '--font']);
 const positionals = () => {
   const out = [];
   for (let i = 0; i < rest.length; i++) {
@@ -879,12 +879,13 @@ async function cmdFx() {
     '--rate': 'rate', '--volume': 'volume', '--fade-ms': 'fadeMs',
     '--transition': 'transition', '--transition-dir': 'transitionDir', '--transition-speed': 'transitionSpeed',
     '--panel-alpha': 'panelAlpha', '--panel-alpha-dark': 'panelAlphaDark', '--panel-blur': 'panelBlur', '--composer-alpha': 'composerAlpha',
-    '--content-alpha': 'contentAlpha', '--content-blur': 'contentBlur',
+    '--content-alpha': 'contentAlpha', '--content-blur': 'contentBlur', '--font': 'fontFamily',
   };
+  const STRING_KEYS = new Set(['transition', 'transitionDir', 'fontFamily']);
   let any = false;
   for (const [flag, key] of Object.entries(map)) {
     const v = opt(flag);
-    if (v !== undefined) { await cliCmd({ c: 'fx', k: key, v: key === 'transition' || key === 'transitionDir' ? v : Number(v) }, { quiet: true }); any = true; }
+    if (v !== undefined) { await cliCmd({ c: 'fx', k: key, v: STRING_KEYS.has(key) ? v : Number(v) }, { quiet: true }); any = true; }
   }
   if (hasFlag('--flip')) { await cliCmd({ c: 'fx', k: 'flipH', v: true }, { quiet: true }); any = true; }
   if (hasFlag('--no-flip')) { await cliCmd({ c: 'fx', k: 'flipH', v: false }, { quiet: true }); any = true; }

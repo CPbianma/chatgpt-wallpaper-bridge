@@ -417,11 +417,25 @@
     body.append(h('div', { class: 'wep-sec' }, '3D 视差'));
     body.append(toggle('启用视差', !!par.enabled, (v) => cmd({ c: 'parallax', k: 'enabled', v })));
     body.append(slider('壁纸纵深', 0, 4, 0.1, num(par.wallpaperPct, 1), (v) => v.toFixed(1) + '%', (v) => cmd({ c: 'parallax', k: 'wallpaperPct', v })));
-    body.append(h('div', { class: 'wep-note' }, '壁纸随光标偏移反向轻移，层级恒在全部界面之下、不接管输入。'));
+    body.append(slider('界面视差', 0, 3, 0.1, num(par.uiPct, 0), (v) => v.toFixed(1) + '%', (v) => cmd({ c: 'parallax', k: 'uiPct', v })));
+    body.append(h('div', { class: 'wep-note' }, '壁纸随光标反向轻移，对话区/输入框/侧栏正向浅移（界面视差=0 时只动壁纸）——层级恒在全部界面之下、不接管输入。'));
   }
 
   function renderSys() {
     const oc = payload().occlusion || {};
+    body.append(h('div', { class: 'wep-sec' }, '界面'));
+    const FONTS = [['', '应用默认'], ['Microsoft YaHei', '微软雅黑'], ['SimSun', '宋体'], ['SimHei', '黑体'], ['KaiTi', '楷体'], ['Segoe UI', 'Segoe UI'], ['Consolas', 'Consolas（等宽）'], ['__custom', '自定义…']];
+    const fam = payload().fx?.fontFamily || '';
+    const famKnown = FONTS.some(([v]) => v === fam);
+    const fontWrap = h('div', {});
+    if (!famKnown) fontWrap.append(h('div', { class: 'wep-note' }, `当前：${fam}`));
+    body.append(select('界面字体', FONTS, famKnown ? fam : '__custom', (v) => {
+      if (v === '__custom') { fontWrap.innerHTML = ''; fontWrap.append(inlineInput('字体名（如 Microsoft YaHei），回车应用', (n) => cmd({ c: 'fx', k: 'fontFamily', v: n }))); return; }
+      fontWrap.innerHTML = '';
+      cmd({ c: 'fx', k: 'fontFamily', v });
+    }));
+    body.append(fontWrap);
+    body.append(h('div', { class: 'wep-note' }, '只换界面文字，代码块保持等宽。'));
     body.append(h('div', { class: 'wep-sec' }, '省电（视频壁纸自动暂停解码）'));
     body.append(toggle('最小化/隐藏时', !!oc.hidden, (v) => cmd({ c: 'occlusion', k: 'hidden', v })));
     body.append(toggle('窗口失焦时', !!oc.blur, (v) => cmd({ c: 'occlusion', k: 'blur', v })));
