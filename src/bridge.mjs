@@ -921,6 +921,7 @@ const main = async () => {
     case 'clear': return cliCmd({ c: 'list.clear' });
     case 'next': return cliCmd({ c: 'next' });
     case 'prev': return cliCmd({ c: 'prev' });
+    case 'goto': return cliCmd({ c: 'goto', idx: Number(rest[0]) - 1 });
     case 'play': return cliCmd({ c: 'play' });
     case 'pause': return cliCmd({ c: 'pause' });
     case 'toggle': return cliCmd({ c: 'toggle' });

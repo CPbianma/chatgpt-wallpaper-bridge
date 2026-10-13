@@ -71,6 +71,15 @@ export function applyCommand(cfg, cmd, ctx = {}) {
       out.message = `→ ${list.items[cfg.currentIndex]?.title}`;
       return out;
     }
+    case 'goto': {
+      const list = activeList(cfg);
+      if (!list || !list.items.length) return fail('播放列表为空');
+      cfg.currentIndex = clamp(Number(cmd.idx) | 0, 0, list.items.length - 1);
+      cfg.lastSwitchAt = Date.now();
+      cfg.paused = false;
+      out.message = `→ ${list.items[cfg.currentIndex]?.title}`;
+      return out;
+    }
     case 'play': cfg.paused = false; out.message = '播放'; return out;
     case 'pause': cfg.paused = true; out.message = '暂停'; return out;
     case 'toggle': cfg.paused = !cfg.paused; out.message = cfg.paused ? '暂停' : '播放'; return out;

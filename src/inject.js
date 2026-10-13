@@ -334,18 +334,18 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       f.setAttribute('title', 'wallpaper-live');
       Object.assign(f.style, { width: '100%', height: '100%', border: '0', display: 'block' });
       f.srcdoc = state.liveDoc;
-      // cached still under the (initially transparent) iframe: the wallpaper
-      // appears instantly, the live renderer fades in over it when ready
-      if (state.liveStill) {
-        const still = document.createElement('img');
-        still.alt = ''; still.draggable = false;
-        Object.assign(still.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover' });
-        still.src = state.liveStill;
-        slot.wrap.appendChild(still);
-        slot.still = still;
-        f.style.opacity = '0';
-        f.style.transition = 'opacity 700ms ease';
-      }
+      // placeholder under the (initially transparent) iframe: the cached
+      // renderer frame when we have one, else the wallpaper's own preview —
+      // a switch to a live wallpaper must paint IMMEDIATELY even while a big
+      // pkg streams and shaders compile
+      const still = document.createElement('img');
+      still.alt = ''; still.draggable = false;
+      Object.assign(still.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover' });
+      still.src = state.liveStill || `${HOST}/media/${index}?e=${state.epoch}`;
+      slot.wrap.appendChild(still);
+      slot.still = still;
+      f.style.opacity = '0';
+      f.style.transition = 'opacity 700ms ease';
       slot.wrap.appendChild(f);
       slot.el = f; slot.index = index; slot.kind = 'live';
       slot.liveCtl = { cfg: liveCfgFor(live), budgetMs: num(live.budgetMs, 0), configured: false, appliedPlaying: null, appliedVolume: null, lastFrameAt: Date.now(), rescued: false };
@@ -477,10 +477,16 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function resetWrap(w) { if (!w) return; w.style.transitionProperty = 'none'; w.style.transform = ''; w.style.clipPath = ''; w.style.zIndex = ''; }
 
   async function show(index) {
-    if (state.switching || state.destroyed) return;
+    if (state.destroyed) return;
     if (index === state.currentIndex && state.active >= 0) return;
     const item = state.items[index];
     if (!item) return;
+    // Preemptible switching (rapid 下一张 clicks): a newer show() supersedes an
+    // in-flight one — the stale run's awaits detect the bumped sequence and
+    // bail out instead of being silently swallowed (dsh: 切换意图永远最新优先)
+    state.switchSeq = (state.switchSeq || 0) + 1;
+    const seq = state.switchSeq;
+    const stale = () => seq !== state.switchSeq || state.destroyed;
     // degradation chain (dsh): live renderer -> author-embedded MP4 -> preview
     // media; a live failure is remembered for the session so the next rotation
     // onto this wallpaper skips the 15s first-frame budget entirely
@@ -498,13 +504,14 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
         el = fillSlot(nextSlot, item, index, tiers[t]);
         kind = state.slots[nextSlot].kind;
         const ready = await whenReady(el, kind);
-        if (state.destroyed) return;
+        if (stale()) return; // superseded mid-load — never a failure
         if (ready) break;
         if (tiers[t]?.live && item.id) state.liveFail[item.id] = true;
         if (t === tiers.length - 1) { state.diagFailed = index; return; }
       }
       state.diagFailed = null;
       if (kind === 'video' && !state.paused && !state.occluded) { try { await el.play(); } catch {} }
+      if (stale()) return; // a newer switch landed while the video warmed up
       if (kind === 'live') {
         const st = state.slots[nextSlot];
         if (st.still) {
@@ -525,7 +532,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       state.userThemeOverride = false; // new wallpaper — theme-follow resumes (dsh: 换下一张恢复)
       const old = oldSlot >= 0 ? state.slots[oldSlot] : null;
       setTimeout(() => {
-        if (state.destroyed) return;
+        if (state.destroyed || state.active !== nextSlot) return;
         resetWrap(state.slots[nextSlot].wrap);
         if (old) {
           resetWrap(old.wrap);
@@ -534,7 +541,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       }, dur + 120);
       updateTint(item);
     } finally {
-      state.switching = false;
+      if (seq === state.switchSeq) state.switching = false;
     }
   }
 

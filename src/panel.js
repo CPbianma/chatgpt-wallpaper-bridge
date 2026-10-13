@@ -72,7 +72,8 @@
 .wep-cur .n{font-weight:600;font-size:12.5px}
 .wep-cur .s{opacity:.7;font-size:11.5px}
 .wep-plist{display:flex;flex-direction:column;gap:4px;margin-top:6px}
-.wep-pitem{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.07);font-size:12px}
+.wep-pitem{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.07);font-size:12px;cursor:pointer;transition:background .12s}
+.wep-pitem:hover{background:rgba(255,255,255,.16)}
 .wep-pitem .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wep-pitem.cur{outline:1.5px solid #5b8cff}
 .wep-note{font-size:11.5px;opacity:.6;margin-top:8px}
@@ -387,13 +388,16 @@
     body.append(h('div', { class: 'wep-sec' }, `本列表 ${p.items?.length || 0} 张`));
     const wrap = h('div', { class: 'wep-plist' });
     (p.items || []).forEach((x, i) => {
-      wrap.append(h('div', { class: 'wep-pitem' + (i === p.index ? ' cur' : '') },
+      const row = h('div', { class: 'wep-pitem' + (i === p.index ? ' cur' : ''), title: '点击切换到这张' },
         h('span', { class: 'n' }, `${i + 1}. ${x.title}`),
-        h('button', { class: 'wep-mini', onclick: () => cmd({ c: 'list.remove', idx: i }) }, '移除')));
+        h('button', { class: 'wep-mini', onclick: (e) => { e.stopPropagation(); cmd({ c: 'list.remove', idx: i }); } }, '移除'));
+      // row body jumps straight to this wallpaper (dsh: 列表即选台)
+      row.addEventListener('click', (e) => { if (!e.target.closest('.wep-mini')) cmd({ c: 'goto', idx: i }); });
+      wrap.append(row);
     });
     if (!p.items?.length) wrap.append(h('div', { class: 'wep-empty' }, '空列表 — 到「壁纸」页点选或点 ＋ 加入'));
     body.append(wrap);
-    body.append(h('div', { class: 'wep-note' }, '在「壁纸」页缩略图上点 ＋ 可把壁纸加入当前列表。'));
+    body.append(h('div', { class: 'wep-note' }, '点任意一行直接切换；在「壁纸」页缩略图上点 ＋ 可把壁纸加入当前列表。'));
   }
 
   function renderExt() {
