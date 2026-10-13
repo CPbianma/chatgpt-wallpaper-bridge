@@ -23,6 +23,7 @@ import { applyCommand, nextIndex } from './commands.mjs';
 import { createTokenMap } from './tokens.mjs';
 import { startMediaServer, probeHtml, VENDOR_DIR } from './media-server.mjs';
 import { parseUserPropDefs, entryDirPrefix, filterKnownOverrides } from './we-props.mjs';
+import { extractSceneVideoFromPkgFile, extractSceneVideoFromDir } from './scene-manifest.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INJECT_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'inject.js'), 'utf8');
@@ -33,6 +34,7 @@ const SCENE_LIVE_PREFIX = '/wallpaper-engine/scene-live/';
 const MEDIA_ORIGIN_FILE = path.join(APP_DIR, 'media-origin');
 const LOG_FILE = path.join(APP_DIR, 'bridge.log');
 const FRAMES_DIR = path.join(APP_DIR, 'frames'); // live frame backfill cache (per-wallpaper JPEG stills)
+const SCENE_VIDEO_DIR = path.join(APP_DIR, 'scene-video'); // embedded MP4s extracted from scene.pkg (degradation tier)
 const CHUNK_BYTES = 2 * 1024 * 1024;
 const ATTACH_POLL_MS = 3000;
 const PUSH_MS = 2500;
@@ -155,6 +157,39 @@ async function cmdStart() {
     return { type: 'web', src: entry, mediaBase, fps };
   }
 
+  // Degradation middle tier: many scene.pkgs embed an author-rendered MP4.
+  // Extract it lazily (index + entry-prefix probe, full read only on hit) the
+  // first time a scene wallpaper becomes current; the page falls back to it
+  // when live rendering fails.
+  const sceneVideoState = new Map(); // id -> 'pending' | 'ready' | 'none'
+  function ensureSceneVideo(lib) {
+    if (!lib?.live || lib.live.type !== 'scene') return;
+    const id = lib.id;
+    if (sceneVideoState.has(id)) return;
+    const out = path.join(SCENE_VIDEO_DIR, `${id}.mp4`);
+    if (fs.existsSync(out)) { sceneVideoState.set(id, 'ready'); return; }
+    sceneVideoState.set(id, 'pending');
+    void (async () => {
+      try {
+        const bytes = lib.live.pkg && fs.existsSync(lib.live.pkg)
+          ? await extractSceneVideoFromPkgFile(lib.live.pkg)
+          : extractSceneVideoFromDir(lib.live.dir);
+        if (bytes && bytes.length > 1024) {
+          fs.mkdirSync(SCENE_VIDEO_DIR, { recursive: true });
+          fs.writeFileSync(out, Buffer.from(bytes.buffer || bytes, bytes.byteOffset || 0, bytes.length));
+          sceneVideoState.set(id, 'ready');
+          console.log(`[scene-video] ${id}: extracted embedded MP4 (${(bytes.length / 1048576).toFixed(1)}MB)`);
+        } else sceneVideoState.set(id, 'none');
+      } catch (e) {
+        sceneVideoState.set(id, 'none');
+        console.log(`[scene-video] ${id}: no embedded MP4 (${e.message.slice(0, 80)})`);
+      }
+    })();
+  }
+
+  // from its project.json (dsh's calibrated parser), with the user's overrides
+  // merged in. File-type props get a shallow listing of the wallpaper dir so
+  // the panel can render a dropdown instead of a text field.
   // Panel-facing user-property defs for the current live wallpaper: parsed
   // from its project.json (dsh's calibrated parser), with the user's overrides
   // merged in. File-type props get a shallow listing of the wallpaper dir so
@@ -325,6 +360,13 @@ async function cmdStart() {
       if (fs.existsSync(file)) return serveFile(c, params, file);
       return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no frame').toString('base64'));
     }
+    // embedded MP4 extracted from a scene.pkg (video element streams via Range)
+    const sv = /^\/scene-video\/([\w-]+)$/.exec(u.pathname);
+    if (sv) {
+      const file = path.join(SCENE_VIDEO_DIR, `${sv[1]}.mp4`);
+      if (fs.existsSync(file)) return serveFile(c, params, file);
+      return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no scene video').toString('base64'));
+    }
     // playlist media
     const m = /^\/media\/(\d+)$/.exec(u.pathname);
     if (m) {
@@ -401,6 +443,13 @@ async function cmdStart() {
       p.liveStill = (p.live && item?.id && fs.existsSync(path.join(FRAMES_DIR, `${item.id}.jpg`)))
         ? `${VIRTUAL_HOST}/frame/${item.id}`
         : null;
+    }
+    // embedded-MP4 degradation tier for scene wallpapers
+    {
+      const item = activeList(cfg)?.items[cfg.currentIndex];
+      const lib = item?.id ? library.find((x) => x.id === item.id) : null;
+      if (lib?.live?.type === 'scene') ensureSceneVideo(lib);
+      p.sceneVideo = !!(item?.id && sceneVideoState.get(item.id) === 'ready');
     }
     if (forSession && forSession.libEpoch !== (cfg.libEpoch || 0)) {
       p.lib = libPayload();
@@ -566,6 +615,7 @@ async function pokePages(expression) {
       live,
       liveSettings: cfg.live,
       liveStill: (live && item?.id && fs.existsSync(path.join(FRAMES_DIR, `${item.id}.jpg`))) ? `${VIRTUAL_HOST}/frame/${item.id}` : null,
+      sceneVideo: !!(item?.id && fs.existsSync(path.join(SCENE_VIDEO_DIR, `${item.id}.mp4`))),
     };
     expression = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(payload)})`;
   }

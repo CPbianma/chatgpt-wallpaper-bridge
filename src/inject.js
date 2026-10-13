@@ -56,6 +56,8 @@
     liveInfo: null,        // live render config for the current index (null = plain media)
     liveDoc: '',           // srcdoc for the WebWallGL renderer iframe (pushed by bridge)
     liveSettings: null,    // { enabled, fps } for the panel
+    sceneVideo: false,     // current scene wallpaper has a bridge-extracted embedded MP4
+    liveFail: {},          // session memory: ids whose live render already failed (dsh liveSessionFailures)
     propsDefs: null,       // current live wallpaper's user-property defs (panel UI)
     propsId: '',           // wallpaper id the defs/values belong to
     propsValues: null,     // user's override wire values for that wallpaper
@@ -322,10 +324,11 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   /* ================= media & transitions ================= */
 
-  function fillSlot(slotIdx, item, index, live) {
+  function fillSlot(slotIdx, item, index, tier) {
     const slot = state.slots[slotIdx];
     if (slot.el) { try { slot.el.pause && slot.el.pause(); } catch {} slot.wrap.innerHTML = ''; slot.el = null; slot.liveCtl = null; slot.still = null; }
-    if (live && state.liveDoc) {
+    if (tier?.live && state.liveDoc) {
+      const live = tier.live;
       const f = document.createElement('iframe');
       f.setAttribute('allow', 'autoplay');
       f.setAttribute('title', 'wallpaper-live');
@@ -348,6 +351,18 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       slot.liveCtl = { cfg: liveCfgFor(live), budgetMs: num(live.budgetMs, 0), configured: false, appliedPlaying: null, appliedVolume: null, lastFrameAt: Date.now(), rescued: false };
       styleActiveMedia();
       return f;
+    }
+    if (tier?.sceneVideo) {
+      // middle degradation tier: author-embedded MP4 pulled from scene.pkg
+      const el = document.createElement('video');
+      el.crossOrigin = 'anonymous';
+      el.loop = true; el.autoplay = true; el.playsInline = true; el.preload = 'auto';
+      Object.assign(el.style, { width: '100%', height: '100%', objectFit: 'cover', display: 'block' });
+      el.src = `${HOST}/scene-video/${item.id}`;
+      slot.wrap.appendChild(el);
+      slot.el = el; slot.index = index; slot.kind = 'video';
+      styleActiveMedia();
+      return el;
     }
     const isVideo = item.kind === 'video';
     const el = document.createElement(isVideo ? 'video' : 'img');
@@ -466,16 +481,28 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (index === state.currentIndex && state.active >= 0) return;
     const item = state.items[index];
     if (!item) return;
-    const live = state.liveInfo; // captured with this payload — never mix across payloads
+    // degradation chain (dsh): live renderer -> author-embedded MP4 -> preview
+    // media; a live failure is remembered for the session so the next rotation
+    // onto this wallpaper skips the 15s first-frame budget entirely
+    const live = state.liveInfo && !(item.id && state.liveFail[item.id]) ? state.liveInfo : null;
+    const tiers = [];
+    if (live) tiers.push({ live });
+    if (item.id && state.sceneVideo) tiers.push({ sceneVideo: true });
+    tiers.push(null); // plain media: the video file itself or the preview image
     state.switching = true;
     try {
       const nextSlot = state.active === 0 ? 1 : 0;
       const oldSlot = state.active >= 0 ? state.active : -1;
-      const el = fillSlot(nextSlot, item, index, live);
-      const kind = state.slots[nextSlot].kind;
-      const ready = await whenReady(el, kind);
-      if (state.destroyed) return;
-      if (!ready) { state.diagFailed = index; return; }
+      let el = null, kind = '';
+      for (let t = 0; t < tiers.length; t++) {
+        el = fillSlot(nextSlot, item, index, tiers[t]);
+        kind = state.slots[nextSlot].kind;
+        const ready = await whenReady(el, kind);
+        if (state.destroyed) return;
+        if (ready) break;
+        if (tiers[t]?.live && item.id) state.liveFail[item.id] = true;
+        if (t === tiers.length - 1) { state.diagFailed = index; return; }
+      }
       state.diagFailed = null;
       if (kind === 'video' && !state.paused && !state.occluded) { try { await el.play(); } catch {} }
       if (kind === 'live') {
@@ -842,6 +869,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (typeof s.liveDoc === 'string' && s.liveDoc) state.liveDoc = s.liveDoc;
     if (s.liveSettings) state.liveSettings = s.liveSettings;
     if ('liveStill' in s) state.liveStill = s.liveStill || null;
+    if ('sceneVideo' in s) state.sceneVideo = !!s.sceneVideo;
     if (Array.isArray(s.propsDefs)) state.propsDefs = s.propsDefs;
     if (typeof s.propsId === 'string') state.propsId = s.propsId;
     if (s.propsValues && typeof s.propsValues === 'object') {

@@ -44,7 +44,7 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 - [x] 帧率档（15/30/60，`live.set`；`__wp.setSceneFps` 差分热更新不重建槽位）+ 实时渲染总开关（关=回退预览图）+ 场景音量（`setVolume` 差分）
 - [x] live 抓帧回填（同源 rAF 内抓 WebGL 画布 → 480px JPEG → Image GET `/api/frame` 落盘 `frames/<id>.jpg`；轮换回来时静帧先铺满槽位、渲染器就绪后 700ms 淡入覆盖——大包预热几秒也不再黑屏）
 - [x] 过场补 `bars`（7 板百叶窗：单 polygon 每板 5 顶点、起止等点数 CSS 插值；显式层叠——淡出/推移/百叶窗旧层在上让位，擦除/光圈/缩放新层在上生长）
-- [ ] 降级链中间档：作者内嵌 MP4（pkg-read 提取，live 失败但 pkg 可读时降级播内嵌视频而非静图）
+- [x] 降级链中间档：作者内嵌 MP4（vendored `pkg-read.mjs` + `scene-manifest.mjs`：PKG 索引+条目前缀探测、LZ4 块链、命中才整条读——实测本库 4/145 场景带内嵌 MP4；懒提取落 `scene-video/<id>.mp4`，live 失败→内嵌视频→预览图→跳过；live 失败按壁纸记住，本会话不再浪费首帧预算）
 
 ### 📋 Phase 3（增强）
 

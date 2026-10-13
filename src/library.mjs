@@ -97,7 +97,7 @@ function readItem(root, id) {
     const loose = file && fs.existsSync(file) && /\.json$/i.test(file) ? file : null;
     let pkgBytes = 0;
     if (pkg) { try { pkgBytes = fs.statSync(pkg).size; } catch {} }
-    if (pkg || loose) live = { type: 'scene', dir, pkgBytes };
+    if (pkg || loose) live = { type: 'scene', dir, pkgBytes, pkg: pkg || null };
   } else if (weType === 'web' && file && fs.existsSync(file) && /\.html?$/i.test(file)) {
     live = { type: 'web', dir, entry: String(meta.file).replaceAll('\\', '/') };
   }
