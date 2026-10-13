@@ -15,6 +15,8 @@
   try { prev && prev.destroy(); } catch {}
 
   const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const HOST = 'https://wallpaper.local';
   const $ = (sel, root) => (root || document).querySelector(sel);
 
   /* ---------- style ---------- */
@@ -26,6 +28,17 @@
   border:1px solid rgba(255,255,255,.35);box-shadow:0 4px 18px rgba(0,0,0,.25);transition:transform .15s}
 .we-fab:hover{transform:scale(1.08)}
 .we-fab svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+/* pull-cord mascot (dsh .we-rope): hangs at the top edge; drag sideways to
+   reposition, pull DOWN to open the panel as a drawer, click to toggle.
+   No CSS filter on the rope (Chromium re-rasterization flash); the art is a
+   page-derived alpha-cropped PNG. */
+.we-rope{position:fixed;top:64px;left:80%;z-index:999992;width:52px;height:57px;cursor:grab;
+  user-select:none;touch-action:none}
+.we-rope.dragging{cursor:grabbing}
+.we-rope.settle{transition:top .28s cubic-bezier(.16,1,.3,1),left .28s cubic-bezier(.16,1,.3,1)}
+.we-rope .we-rope-art{width:100%;height:100%;transition:transform .12s ease}
+.we-rope:hover .we-rope-art{transform:scale(1.06)}
+.we-rope .we-rope-art img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
 .we-panel{position:fixed;right:14px;bottom:148px;width:400px;max-width:calc(100vw - 28px);height:min(620px,calc(100vh - 180px));
   z-index:999991;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;
   background:rgba(30,32,44,.62);backdrop-filter:blur(28px) saturate(1.5);-webkit-backdrop-filter:blur(28px) saturate(1.5);
@@ -172,16 +185,190 @@
       fab.style.bottom = Math.max(12, Math.min(innerHeight - 60, dy)) + 'px';
     });
     fab.addEventListener('pointerup', () => { if (!dragY?.moved) togglePanel(); dragY = null; });
+    lastMascotJson = ''; // force (re)build of rope/FAB visibility
+    syncRope();
   }
 
-  function togglePanel() {
+  /* ---------- mascot rope (dsh 吉祥物拉绳) ---------- */
+
+  const ROPE_W = 52, ROPE_H = 57, ROPE_TOP = 64;
+  let rope = null, ropeImg = null, lastMascotJson = '';
+  const ropePar = { tx: 0, ty: 0, cx: 0, cy: 0, raf: 0 };
+
+  const mascotCfg = () => {
+    const m = payload().mascot || {};
+    return { enabled: m.enabled !== false, form: m.form || 'whale', xPct: num(m.xPct, 0.88), size: clamp(num(m.size, 1), 0.6, 2) };
+  };
+
+  // Keep the rope/FAB in step with pushed config (called on every refresh tick).
+  function syncRope() {
+    const mc = mascotCfg();
+    const j = JSON.stringify(mc);
+    const fab = document.getElementById('we-fab');
+    if (!mc.enabled) {
+      if (rope) { rope.remove(); rope = null; ropeImg = null; lastMascotJson = j; }
+      if (fab) fab.style.display = '';
+      return;
+    }
+    if (fab) fab.style.display = 'none';
+    if (j === lastMascotJson && rope) return;
+    lastMascotJson = j;
+    if (!rope) mountRope();
+    positionRope(mc);
+    if (rope._form !== mc.form) { rope._form = mc.form; loadRopeArt(); }
+  }
+
+  function positionRope(mc = mascotCfg()) {
+    if (!rope) return;
+    rope.style.width = ROPE_W * mc.size + 'px';
+    rope.style.height = ROPE_H * mc.size + 'px';
+    rope._x = clamp(Math.round(mc.xPct * innerWidth - (ROPE_W * mc.size) / 2), 8, innerWidth - ROPE_W * mc.size - 8);
+    rope.style.left = rope._x + 'px';
+    rope.style.top = ROPE_TOP + 'px';
+  }
+
+  // Source art ships with 20-30% transparent margins (see vendor/mascot/
+  // README): crop to the alpha bbox on a canvas, downscale to ~256px tall,
+  // cache the result on the bridge, and use the cached file from then on.
+  function loadRopeArt() {
+    if (!ropeImg) return;
+    const form = rope._form;
+    if (form === 'vector') { ropeImg.src = `${HOST}/mascot/vector`; return; }
+    const derived = `${HOST}/mascot-derived/${form}`;
+    const probe = new Image();
+    probe.onload = () => { if (ropeImg && rope._form === form) ropeImg.src = derived; };
+    probe.onerror = () => {
+      if (!ropeImg || rope._form !== form) return;
+      ropeImg.src = `${HOST}/mascot/${form}`;
+      deriveRopeArt(form);
+    };
+    probe.src = derived;
+  }
+
+  function deriveRopeArt(form) {
+    const im = new Image();
+    im.crossOrigin = 'anonymous'; // bridge sends ACAO:* — keeps the canvas clean
+    im.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+        const cx = cv.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(im, 0, 0);
+        const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+        let minX = cv.width, minY = cv.height, maxX = -1, maxY = -1;
+        for (let y = 0; y < cv.height; y += 2) for (let x = 0; x < cv.width; x += 2) {
+          if (d[(y * cv.width + x) * 4 + 3] > 8) {
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+          }
+        }
+        if (maxX < 0) return;
+        const bw = maxX - minX + 2, bh = maxY - minY + 2;
+        const oh = 256, ow = Math.round(bw * (oh / bh));
+        const out = document.createElement('canvas');
+        out.width = ow; out.height = oh;
+        out.getContext('2d').drawImage(im, minX, minY, bw, bh, 0, 0, ow, oh);
+        const url = out.toDataURL('image/png');
+        if (ropeImg && rope._form === form) ropeImg.src = url;
+        const b64 = url.split(',')[1].replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+        new Image().src = `${HOST}/api/mascot-cache?form=${form}&d=${b64}`; // page -> bridge cache
+      } catch {}
+    };
+    im.src = `${HOST}/mascot/${form}`;
+  }
+
+  function mountRope() {
+    rope = h('div', { class: 'we-rope', id: 'we-rope', title: '下拉或点击打开面板 · 左右拖动换位' });
+    const art = h('div', { class: 'we-rope-art' });
+    ropeImg = h('img', { draggable: 'false', alt: '' });
+    art.append(ropeImg);
+    rope.append(art);
+    rope._x = 8; rope._form = '';
+    document.documentElement.append(rope);
+
+    let drag = null;
+    const settleBack = () => {
+      rope.classList.add('settle');
+      rope.style.top = ROPE_TOP + 'px';
+      setTimeout(() => rope?.classList.remove('settle'), 300);
+    };
+    rope.addEventListener('pointerdown', (e) => {
+      drag = { x0: e.clientX, y0: e.clientY, l0: rope._x, moved: false, opened: false };
+      rope.setPointerCapture(e.pointerId);
+      rope.classList.add('dragging');
+      e.preventDefault();
+    });
+    rope.addEventListener('pointermove', (e) => {
+      if (!drag || !rope) return;
+      const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+      if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      rope._x = clamp(drag.l0 + dx, 8, innerWidth - rope.offsetWidth - 8);
+      const pull = clamp(dy, 0, 140);
+      rope.style.left = rope._x + 'px';
+      rope.style.top = (ROPE_TOP + pull) + 'px';
+      // dsh: 下拉拉过阈值 → 抽屉开在绳子下方（面板 z 低于绳子，绳子始终可抓）
+      if (pull > 56 && !drag.opened) { drag.opened = true; if (!root.firstChild) togglePanel(rope); }
+    });
+    const release = (cancelled) => {
+      if (!drag || !rope) { drag = null; return; }
+      rope.classList.remove('dragging');
+      if (!cancelled && !drag.moved) togglePanel(rope); // plain click toggles the drawer
+      else {
+        settleBack();
+        cmd({ c: 'mascot.set', xPct: +((rope._x + rope.offsetWidth / 2) / innerWidth).toFixed(4) });
+      }
+      drag = null;
+    };
+    rope.addEventListener('pointerup', () => release(false));
+    rope.addEventListener('pointercancel', () => release(true));
+  }
+
+  // mascot parallax: drifts WITH the wallpaper direction (mirrored cursor),
+  // damped — independent easing loop so inject.js doesn't need to know the rope
+  function ropeParMove(e) {
+    if (!rope) return;
+    const par = payload().parallax || {};
+    if (!par.enabled) {
+      ropePar.tx = ropePar.ty = 0;
+      if (ropePar.cx || ropePar.cy) pumpRopePar();
+      return;
+    }
+    ropePar.tx = clamp(-(e.clientX - innerWidth / 2) * 0.006, -8, 8);
+    ropePar.ty = clamp(-(e.clientY - innerHeight / 2) * 0.006, -6, 6);
+    pumpRopePar();
+  }
+  function pumpRopePar() {
+    if (ropePar.raf) return;
+    ropePar.raf = requestAnimationFrame(function step() {
+      ropePar.cx += (ropePar.tx - ropePar.cx) * 0.1;
+      ropePar.cy += (ropePar.ty - ropePar.cy) * 0.1;
+      if (rope) rope.style.translate = `${ropePar.cx.toFixed(2)}px ${ropePar.cy.toFixed(2)}px`;
+      if (Math.abs(ropePar.tx - ropePar.cx) > 0.05 || Math.abs(ropePar.ty - ropePar.cy) > 0.05) ropePar.raf = requestAnimationFrame(step);
+      else ropePar.raf = 0;
+    });
+  }
+  document.addEventListener('pointermove', ropeParMove, { passive: true });
+
+  function togglePanel(anchor) {
     if (root.firstChild) { root.innerHTML = ''; clearInterval(refreshTimer); refreshTimer = 0; return; }
     tabBar = h('div', { class: 'wep-head' }, h('span', { class: 'wep-title' }, '壁纸引擎'));
     for (const [k, t] of TABS)
       tabBar.append(h('button', { class: 'wep-tab' + (k === tab ? ' on' : ''), onclick: () => { tab = k; render(); } }, t));
-    tabBar.append(h('button', { class: 'wep-close', onclick: togglePanel }, '✕'));
+    tabBar.append(h('button', { class: 'wep-close', onclick: () => togglePanel() }, '✕'));
     body = h('div', { class: 'wep-body' });
     const p = h('div', { class: 'we-panel' }, tabBar, body);
+    // opened from the rope: drawer anchored under it (dsh z 秩序 — 面板低于绳子)
+    if (anchor && anchor.classList?.contains('we-rope')) {
+      const w = Math.min(400, innerWidth - 28);
+      const r = anchor.getBoundingClientRect();
+      const top = Math.round(r.bottom + 8);
+      p.style.left = clamp(Math.round(r.left + r.width / 2 - w / 2), 14, innerWidth - w - 14) + 'px';
+      p.style.top = top + 'px';
+      p.style.right = 'auto';
+      p.style.bottom = 'auto';
+      p.style.height = `min(620px, ${Math.max(220, innerHeight - top - 14)}px)`;
+      p.style.transformOrigin = 'top center';
+    }
     // don't yank the UI while the user is interacting with it
     p.addEventListener('pointerdown', () => { panelBusy = true; });
     p.addEventListener('pointerup', () => { panelBusy = false; });
@@ -419,6 +606,12 @@
     body.append(slider('壁纸纵深', 0, 4, 0.1, num(par.wallpaperPct, 1), (v) => v.toFixed(1) + '%', (v) => cmd({ c: 'parallax', k: 'wallpaperPct', v })));
     body.append(slider('界面视差', 0, 3, 0.1, num(par.uiPct, 0), (v) => v.toFixed(1) + '%', (v) => cmd({ c: 'parallax', k: 'uiPct', v })));
     body.append(h('div', { class: 'wep-note' }, '壁纸随光标反向轻移，对话区/输入框/侧栏正向浅移（界面视差=0 时只动壁纸）——层级恒在全部界面之下、不接管输入。'));
+    body.append(h('div', { class: 'wep-sec' }, '吉祥物拉绳'));
+    const mc = mascotCfg();
+    body.append(toggle('显示吉祥物', mc.enabled, (v) => cmd({ c: 'mascot.set', enabled: v })));
+    body.append(select('形态', [['whale', 'Deepseek 鲸'], ['maid', '小女仆'], ['portrait', '立绘'], ['vector', '矢量']], mc.form, (v) => cmd({ c: 'mascot.set', form: v })));
+    body.append(slider('大小', 0.6, 2, 0.1, mc.size, (v) => v.toFixed(1) + '×', (v) => cmd({ c: 'mascot.set', size: v })));
+    body.append(h('div', { class: 'wep-note' }, '顶边小挂件：左右拖动换位，向下拉或点击开合面板（关闭后回到右下角圆钮）。'));
   }
 
   function renderSys() {
@@ -436,6 +629,19 @@
     }));
     body.append(fontWrap);
     body.append(h('div', { class: 'wep-note' }, '只换界面文字，代码块保持等宽。'));
+    body.append(h('div', { class: 'wep-sec' }, '会话头像'));
+    const av = payload().avatars || {};
+    body.append(toggle('显示头像', !!av.enabled, (v) => cmd({ c: 'avatars.set', enabled: v })));
+    {
+      const prevRow = h('div', { class: 'wep-row' }, h('label', {}, '当前'));
+      for (const [slot, name] of [['user', '我'], ['assistant', '助手']]) {
+        const file = av[slot] || '';
+        const img = h('img', { src: file ? `${HOST}/avatar/${encodeURIComponent(file)}` : '', alt: name, style: `width:26px;height:26px;border-radius:${slot === 'user' ? '50%' : '8px'};background:rgba(255,255,255,.15);${file ? '' : 'display:none'}` });
+        prevRow.append(h('span', { style: 'font-size:11.5px;opacity:.7' }, name), img);
+      }
+      body.append(prevRow);
+    }
+    body.append(h('div', { class: 'wep-note' }, '未设自定义图时用内置小图标。换图走 CLI：avatar --user <图片> --assistant <图片>（--clear 还原，--off 关闭）。'));
     body.append(h('div', { class: 'wep-sec' }, '省电（视频壁纸自动暂停解码）'));
     body.append(toggle('最小化/隐藏时', !!oc.hidden, (v) => cmd({ c: 'occlusion', k: 'hidden', v })));
     body.append(toggle('窗口失焦时', !!oc.blur, (v) => cmd({ c: 'occlusion', k: 'blur', v })));
@@ -463,20 +669,28 @@
     body.append(h('div', { class: 'wep-note' },
       'chatgpt-wallpaper-bridge · 灵感来自 dsh-wallpaper-engine (MIT)\n' +
       '壁纸文件不出本机；媒体经 DevTools 拦截供给，未修改应用文件。\n' +
-      'Scene/Web 壁纸的实时渲染（WebWallGL）在路线图上。'));
+      'Scene/Web 壁纸由 WebWallGL 实时渲染（vendored，MIT）。'));
   }
 
   function cliPreset() { /* presets are CLI-only for now; see note in renderSys */ }
 
   /* ---------- lifecycle ---------- */
 
+  // mascot config can change via CLI while the panel is closed — watch slowly
+  const mascotTimer = setInterval(() => { try { syncRope(); } catch {} }, 2000);
+
   window.__wallpaperPanel = {
     api: PANEL_API,
     build: window.__wePanelBuild,
-    open: () => { mount(); if (!root.firstChild) togglePanel(); },
+    open: () => { mount(); if (!root.firstChild) togglePanel(document.getElementById('we-rope')); },
     close: () => { if (root) root.innerHTML = ''; },
     destroy() {
       clearInterval(refreshTimer);
+      clearInterval(mascotTimer);
+      cancelAnimationFrame(ropePar.raf);
+      document.removeEventListener('pointermove', ropeParMove);
+      document.getElementById('we-rope')?.remove();
+      rope = null; ropeImg = null;
       document.getElementById('we-fab')?.remove();
       document.getElementById('we-panel-root')?.remove();
       document.getElementById('we-panel-style')?.remove();

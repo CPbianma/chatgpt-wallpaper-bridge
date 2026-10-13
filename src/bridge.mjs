@@ -41,6 +41,15 @@ const MEDIA_ORIGIN_FILE = path.join(APP_DIR, 'media-origin');
 const LOG_FILE = path.join(APP_DIR, 'bridge.log');
 const FRAMES_DIR = path.join(APP_DIR, 'frames'); // live frame backfill cache (per-wallpaper JPEG stills)
 const SCENE_VIDEO_DIR = path.join(APP_DIR, 'scene-video'); // embedded MP4s extracted from scene.pkg (degradation tier)
+const MASCOT_DIR = path.resolve(VENDOR_DIR, '..', 'mascot'); // vendored mascot source art (dsh, MIT)
+const MASCOT_CACHE_DIR = path.join(APP_DIR, 'mascot'); // page-derived alpha-cropped PNGs
+const AVATAR_DIR = path.join(APP_DIR, 'avatars'); // custom chat avatars (user.png / assistant.png)
+const MASCOT_FILES = {
+  whale: 'rope-whale-source-1024x1536.png',
+  maid: 'rope-maid-source-1192x1320.png',
+  portrait: 'alternate-portrait-937x1679.png',
+  vector: 'vector-960x1024.svg',
+};
 const CHUNK_BYTES = 2 * 1024 * 1024;
 const ATTACH_POLL_MS = 3000;
 const PUSH_MS = 2500;
@@ -53,7 +62,7 @@ const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'start';
 const rest = cmd === argv[0] ? argv.slice(1) : argv;
 const opt = (name) => { const i = rest.indexOf(name); return i >= 0 && i + 1 < rest.length ? rest[i + 1] : undefined; };
 const hasFlag = (name) => rest.includes(name);
-const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps', '--font']);
+const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps', '--font', '--user', '--assistant', '--form', '--size']);
 const positionals = () => {
   const out = [];
   for (let i = 0; i < rest.length; i++) {
@@ -373,6 +382,40 @@ async function cmdStart() {
       if (fs.existsSync(file)) return serveFile(c, params, file);
       return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no scene video').toString('base64'));
     }
+    // mascot: vendored source art + page-derived alpha-cropped cache. The page
+    // crops transparent margins + downscales on canvas, then caches the result
+    // back over the Image GET channel (same pattern as /api/frame).
+    const ms = /^\/mascot\/([\w-]+)$/.exec(u.pathname);
+    if (ms) {
+      const f = MASCOT_FILES[ms[1]];
+      const file = f && path.join(MASCOT_DIR, f);
+      if (file && fs.existsSync(file)) return serveFile(c, params, file);
+      return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no mascot').toString('base64'));
+    }
+    const md = /^\/mascot-derived\/([\w-]+)$/.exec(u.pathname);
+    if (md) {
+      const file = path.join(MASCOT_CACHE_DIR, `${md[1]}.png`);
+      if (fs.existsSync(file)) return serveFile(c, params, file);
+      return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no derived mascot').toString('base64'));
+    }
+    if (u.pathname === '/api/mascot-cache') {
+      const form = (u.searchParams.get('form') || '').replace(/[^\w-]/g, '');
+      const d = u.searchParams.get('d') || '';
+      if (MASCOT_FILES[form] && d && d.length <= 600000) {
+        try {
+          fs.mkdirSync(MASCOT_CACHE_DIR, { recursive: true });
+          fs.writeFileSync(path.join(MASCOT_CACHE_DIR, `${form}.png`), Buffer.from(d, 'base64url'));
+        } catch {}
+      }
+      return fulfill(c, params, 204, [{ name: 'Cache-Control', value: 'no-store' }], '');
+    }
+    // custom chat avatars (copied here by the `avatar` CLI command)
+    const av = /^\/avatar\/([\w.-]+)$/.exec(u.pathname);
+    if (av) {
+      const file = path.join(AVATAR_DIR, av[1]);
+      if (path.dirname(file) === AVATAR_DIR && fs.existsSync(file)) return serveFile(c, params, file);
+      return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no avatar').toString('base64'));
+    }
     // playlist media
     const m = /^\/media\/(\d+)$/.exec(u.pathname);
     if (m) {
@@ -421,6 +464,8 @@ async function cmdStart() {
       // page tears down a stale live layer on rotation to a plain video/image
       live: liveForCurrent(),
       liveSettings: cfg.live,
+      mascot: cfg.mascot,
+      avatars: cfg.avatars,
     };
     // The srcdoc renderer document is pushed once per media-origin lifetime
     // (the origin port changes every bridge restart, so it doubles as the key).
@@ -602,6 +647,32 @@ async function cmdImport() {
   if (n) console.log(`Imported ${n} file(s). They appear in the panel's 壁纸 tab within a minute (library rescan), or restart the bridge.`);
 }
 
+/* ---------------- chat avatars ---------------- */
+
+async function cmdAvatar() {
+  if (hasFlag('--off')) { await cliCmd({ c: 'avatars.set', enabled: false }); console.log('Avatars off.'); return; }
+  if (hasFlag('--clear')) { await cliCmd({ c: 'avatars.set', user: '', assistant: '' }); console.log('Custom avatars cleared (built-in glyphs now).'); return; }
+  const kw = {};
+  for (const [flag, slot] of [['--user', 'user'], ['--assistant', 'assistant']]) {
+    const file = opt(flag);
+    if (file === undefined) continue;
+    const abs = path.resolve(file);
+    if (!fs.existsSync(abs) || !isImageFile(abs)) { console.error(`not an image: ${abs}`); process.exit(1); }
+    fs.mkdirSync(AVATAR_DIR, { recursive: true });
+    const dest = slot + path.extname(abs).toLowerCase();
+    fs.copyFileSync(abs, path.join(AVATAR_DIR, dest));
+    kw[slot] = dest;
+  }
+  if (Object.keys(kw).length) {
+    await cliCmd({ c: 'avatars.set', ...kw, enabled: true });
+    console.log(`Avatars set: ${JSON.stringify(kw)} — shown next to chat rows in the app.`);
+  } else {
+    console.log(`avatar --user <img> [--assistant <img>]  set chat avatars
+       --clear   back to built-in glyphs    --off   hide avatars
+Current: ${JSON.stringify(readConfig().avatars)}`);
+  }
+}
+
 /* ---------------- WE playlist import ---------------- */
 
 // Wallpaper Engine's own client stores playlists in <install>/config.json
@@ -764,6 +835,8 @@ async function pokePages(expression) {
       liveSettings: cfg.live,
       liveStill: (live && item?.id && fs.existsSync(path.join(FRAMES_DIR, `${item.id}.jpg`))) ? `${VIRTUAL_HOST}/frame/${item.id}` : null,
       sceneVideo: !!(item?.id && fs.existsSync(path.join(SCENE_VIDEO_DIR, `${item.id}.mp4`))),
+      mascot: cfg.mascot,
+      avatars: cfg.avatars,
     };
     expression = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(payload)})`;
   }
@@ -957,6 +1030,17 @@ const main = async () => {
     case 'autostart': return cmdAutostart();
     case 'import': return cmdImport();
     case 'import-we': return cmdImportWe();
+    case 'mascot': {
+      const kw = {};
+      if (hasFlag('--on')) kw.enabled = true;
+      if (hasFlag('--off')) kw.enabled = false;
+      if (opt('--form') !== undefined) kw.form = opt('--form');
+      if (opt('--size') !== undefined) kw.size = Number(opt('--size'));
+      if (Object.keys(kw).length) await cliCmd({ c: 'mascot.set', ...kw });
+      console.log('Mascot:', JSON.stringify(readConfig().mascot));
+      return;
+    }
+    case 'avatar': return cmdAvatar();
     case 'status': return cmdStatus();
     case 'probe': return cmdProbe();
     case 'help': case '--help': case '-h': return usage();

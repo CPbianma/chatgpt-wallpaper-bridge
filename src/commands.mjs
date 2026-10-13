@@ -120,6 +120,21 @@ export function applyCommand(cfg, cmd, ctx = {}) {
       out.message = `live: ${cfg.live.enabled ? 'on' : 'off'}, ${cfg.live.fps}fps`;
       return out;
     }
+    case 'mascot.set': {
+      if (cmd.enabled !== undefined) cfg.mascot.enabled = !!cmd.enabled;
+      if (cmd.form !== undefined && ['whale', 'maid', 'portrait', 'vector'].includes(cmd.form)) cfg.mascot.form = cmd.form;
+      if (cmd.xPct !== undefined) cfg.mascot.xPct = clamp(Number(cmd.xPct) || 0, 0, 1);
+      if (cmd.size !== undefined) cfg.mascot.size = clamp(Number(cmd.size) || 1, 0.6, 2);
+      out.message = `mascot: ${cfg.mascot.enabled ? cfg.mascot.form : 'off'}`;
+      return out;
+    }
+    case 'avatars.set': {
+      if (cmd.enabled !== undefined) cfg.avatars.enabled = !!cmd.enabled;
+      if (cmd.user !== undefined) cfg.avatars.user = String(cmd.user || '');
+      if (cmd.assistant !== undefined) cfg.avatars.assistant = String(cmd.assistant || '');
+      out.message = `avatars: ${cfg.avatars.enabled ? 'on' : 'off'}`;
+      return out;
+    }
     case 'props.set': {
       // per-wallpaper user property override (WE wire values, validated page-side)
       const id = String(cmd.id || '');

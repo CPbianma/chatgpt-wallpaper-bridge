@@ -1,3 +1,11 @@
 # Vendored renderer must stay byte-identical to upstream (hashed asset names,
 # integrity assumptions) — never let autocrlf rewrite it.
 vendor/** text eol=lf
+# Binary art assets must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.mp4 binary
+*.webm binary

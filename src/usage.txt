@@ -34,6 +34,11 @@ Commands:
   import-we [--apply N] List playlists from the official Wallpaper Engine
                         client's config.json; --apply <n|名称> imports one as
                         the active bridge playlist.
+  mascot                --on | --off  --form whale|maid|portrait|vector
+                        --size 0.6..2   Pull-cord mascot at the top edge:
+                        drag sideways to move, pull down or click for panel.
+  avatar                --user <img> [--assistant <img>]  Chat-row avatars
+                        (built-in glyphs when unset). --clear / --off.
   fx                    Tune visuals (no flags = show current):
     --opacity  --brightness  --contrast  --saturate  --blur   wallpaper layer
     --dim                          dark overlay above wallpaper (暗化 0..0.85)

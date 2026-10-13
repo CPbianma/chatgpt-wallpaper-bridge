@@ -62,6 +62,10 @@
     propsDefs: null,       // current live wallpaper's user-property defs (panel UI)
     propsId: '',           // wallpaper id the defs/values belong to
     propsValues: null,     // user's override wire values for that wallpaper
+    // chat avatars
+    avatars: null,         // { enabled, user, assistant } — '' file = built-in glyph
+    avatarObs: null,       // MutationObserver watching the transcript
+    avatarTimer: 0,
     // fx canvas
     fxCanvas: null, fxCtx: null, fxParts: [], fxRaf: 0, pointer: { x: -1, y: -1 },
     trailPrev: { x: -1, y: -1 }, trailAcc: 0,
@@ -810,7 +814,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (state.fxParts.length) pumpFx();
   }
 
-  const UI_SELECTOR = 'button, a, input, select, textarea, label, [role="button"], [contenteditable="true"], .we-panel, .we-fab';
+  const UI_SELECTOR = 'button, a, input, select, textarea, label, [role="button"], [contenteditable="true"], .we-panel, .we-fab, .we-rope';
   function onPointerDown(e) {
     if (!fxEnabled()) return;
     if (e.target.closest && e.target.closest(UI_SELECTOR)) return;
@@ -922,6 +926,13 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       const act = state.slots[state.active];
       if (act && act.kind === 'live') applyPropsTo(act); // live wallpaper: hot-apply edited props
     }
+    if ('mascot' in s) state.mascot = s.mascot || null; // panel-side (rope reads payload)
+    if ('avatars' in s) {
+      const na = s.avatars || {};
+      const changed = JSON.stringify(na) !== JSON.stringify(state.avatars || {});
+      state.avatars = na;
+      if (changed) syncAvatars();
+    }
     state.epoch = num(s.epoch, 0);
     state.paused = !!s.paused;
     state.listInfo = { key: s.listKey, name: s.listName, intervalSec: s.intervalSec, order: s.order };
@@ -952,6 +963,78 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       const im = new Image();
       im.src = `${HOST}/api/cmd?c=${encodeURIComponent(JSON.stringify(obj))}&t=${Date.now()}`;
     } catch {}
+  }
+
+  /* ================= chat avatars ================= */
+
+  // The app renders no avatar elements of its own (class*="avatar" = 0 hits in
+  // probes), so we inject small rounded images next to message rows. Float
+  // placement inside the bubble/markdown container avoids fighting the app's
+  // flex layouts. dsh does the same via a MutationObserver (React remounts).
+  const AVA_DEFAULTS = {
+    user: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#5b8cff"/><circle cx="16" cy="12.5" r="5" fill="#fff"/><path d="M7 27c1.8-5.6 5.4-8 9-8s7.2 2.4 9 8" fill="#fff"/></svg>'),
+    assistant: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="2" y="2" width="28" height="28" rx="9" fill="#10a37f"/><path d="M16 7l2.1 5.4L23.5 14l-5.4 2.1L16 21.5 13.9 16.1 8.5 14l5.4-1.6z" fill="#fff"/></svg>'),
+  };
+  const AVA_USER_CSS = 'float:right;width:26px;height:26px;border-radius:50%;margin:2px 0 0 8px;flex:none;';
+  const AVA_ASST_CSS = 'float:left;width:26px;height:26px;border-radius:8px;margin:2px 8px 2px 0;flex:none;';
+
+  function avatarSrc(slot) {
+    const a = state.avatars || {};
+    return a[slot] ? `${HOST}/avatar/${encodeURIComponent(a[slot])}` : AVA_DEFAULTS[slot];
+  }
+
+  function applyAvatars() {
+    if (state.destroyed || !state.avatars?.enabled) return;
+    const t = document.querySelector('main [class*="transcriptContent"]');
+    if (!t) return;
+    // React may recycle a marked row and drop our img — clear stale markers
+    for (const row of t.querySelectorAll('[data-we-ava]')) {
+      if (!row.querySelector('img.we-avatar')) row.removeAttribute('data-we-ava');
+    }
+    // refresh src on already-injected avatars (custom image may have changed)
+    for (const img of t.querySelectorAll('[class*="user-message"] img.we-avatar')) img.src = avatarSrc('user');
+    for (const img of t.querySelectorAll('[class*="agent-activity"] img.we-avatar')) img.src = avatarSrc('assistant');
+    // user bubbles (right-aligned rows)
+    for (const row of t.querySelectorAll('[class*="user-message"]:not([data-we-ava])')) {
+      row.setAttribute('data-we-ava', '1');
+      const bubble = row.querySelector('[data-user-message-bubble]') || row;
+      const img = document.createElement('img');
+      img.className = 'we-avatar';
+      img.src = avatarSrc('user');
+      img.alt = '';
+      img.style.cssText = AVA_USER_CSS;
+      bubble.insertBefore(img, bubble.firstChild);
+    }
+    // assistant rows that contain prose (pure tool-call rows get no avatar)
+    for (const row of t.querySelectorAll('[class*="agent-activity"]:not([data-we-ava])')) {
+      const md = row.querySelector('[class*="markdown"], [data-markdown-text-style]');
+      if (!md) continue;
+      row.setAttribute('data-we-ava', '1');
+      const img = document.createElement('img');
+      img.className = 'we-avatar';
+      img.src = avatarSrc('assistant');
+      img.alt = '';
+      img.style.cssText = AVA_ASST_CSS;
+      md.insertBefore(img, md.firstChild);
+    }
+  }
+
+  function clearAvatars() {
+    for (const img of document.querySelectorAll('img.we-avatar')) img.remove();
+    for (const row of document.querySelectorAll('[data-we-ava]')) row.removeAttribute('data-we-ava');
+  }
+
+  function syncAvatars() {
+    if (state.avatarObs) { state.avatarObs.disconnect(); state.avatarObs = null; }
+    if (state.avatarTimer) { clearTimeout(state.avatarTimer); state.avatarTimer = 0; }
+    if (!state.avatars?.enabled) { clearAvatars(); return; }
+    applyAvatars();
+    // React keeps streaming/remounting rows — re-scan on mutations (debounced)
+    state.avatarObs = new MutationObserver(() => {
+      if (state.avatarTimer) return;
+      state.avatarTimer = setTimeout(() => { state.avatarTimer = 0; applyAvatars(); }, 350);
+    });
+    state.avatarObs.observe(document.body, { childList: true, subtree: true });
   }
 
   /* ================= self-heal ================= */
@@ -1030,6 +1113,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       document.getElementById(BOX_ID)?.remove();
       document.getElementById(STYLE_ID)?.remove();
       document.getElementById(FXC_ID)?.remove();
+      if (state.avatarObs) { state.avatarObs.disconnect(); state.avatarObs = null; }
+      if (state.avatarTimer) { clearTimeout(state.avatarTimer); state.avatarTimer = 0; }
+      clearAvatars();
       if (state.uiTargets?.length) for (const el of state.uiTargets) { try { el.style.translate = ''; } catch {} }
       document.documentElement.removeAttribute('data-we-tint');
       // put the app's theme back the way we found it (dsh: 壁纸退场放回原偏好)

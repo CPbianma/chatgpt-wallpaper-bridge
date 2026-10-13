@@ -53,6 +53,9 @@ export const DEFAULT_PARALLAX = { enabled: false, wallpaperPct: 1.0, uiPct: 0 };
 
 export const DEFAULT_LIVE = { enabled: true, fps: 30 }; // WebWallGL scene/web real-time rendering
 
+export const DEFAULT_MASCOT = { enabled: true, form: 'whale', xPct: 0.88, size: 1.0 }; // pull-cord mascot (forms: whale/maid/portrait/vector)
+export const DEFAULT_AVATARS = { enabled: false, user: '', assistant: '' }; // chat-row avatars ('' = built-in glyph)
+
 export const DEFAULTS = {
   playlists: [],          // [{ key, name, items: [{kind,path,title,id}], intervalSec, order }]
   activePlaylist: null,   // key
@@ -65,6 +68,8 @@ export const DEFAULTS = {
   parallax: DEFAULT_PARALLAX,
   live: DEFAULT_LIVE,
   wallpaperProps: {},     // { [wallpaperId]: { [propName]: wireValue } } — user overrides
+  mascot: DEFAULT_MASCOT,
+  avatars: DEFAULT_AVATARS,
   hidden: [],             // library ids hidden by the user
   epoch: 0,
   libEpoch: 0,

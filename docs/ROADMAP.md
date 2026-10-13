@@ -52,8 +52,8 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 - [x] **自定义壁纸导入**（`import <files...>` 拷贝进 `uploads/`，id=u-<sha1>，与库同管道参与轮换；页面端因 fetch 白名单不做上传 UI，走 CLI）
 - [ ] ffmpeg 帧率上限转码（NVENC → libx264，缓存键 sha256(abs|mtime|fps)，先播原片转好自动切）——**前提：系统需有 ffmpeg**（当前机器未安装；现有视频都流畅，按需再做）
 - [x] 从 WE 客户端播放列表导入（`import-we [--apply N]`：读 `<steamapps>/common/wallpaper_engine/config.json` 全 profile，分钟延迟+随机标志映射；实测导入「轮换」35 张全命中本地库）
-- [ ] 吉祥物拉绳（立绘 + 下拉开抽屉；当前是 FAB 简化版）
-- [ ] 自定义会话头像（MutationObserver 消息行注入，锚点需重钉到 ChatGPT DOM）
+- [x] **吉祥物拉绳**（`.we-rope`：顶边挂件，左右拖动换位并持久化 `mascot.xPct`、下拉 >56px 在绳子下方开抽屉面板、点击开合；四种形态 whale/maid/portrait/vector——vendored 源图带 20-30% 透明边距，页面端 canvas alpha 包围盒裁剪 + 256px 降采样后经 `/api/mascot-cache` 落盘复用；不叠 CSS filter 防 Chromium 重栅格闪烁；视差开启时随壁纸方向阻尼漂移；关闭则回退右下角 FAB）
+- [x] **自定义会话头像**（`cfg.avatars` + MutationObserver 防抖注入：用户行 `[class*="user-message"]` 气泡内右上浮、助手行取含 markdown 正文的 `[class*="agent-activity"]` 左侧浮——纯工具行不打扰；React 回收行丢 img 时清标注重挂；自定义图 `avatar --user/--assistant` 拷入 APP_DIR 经 `/avatar/<file>` 供给，未设=内置 SVG 小图标；已注入头像随配置热换 src）
 - [x] 字体自定义（见上；光标自定义暂不做——全局 cursor 样式会与应用交互态打架，收益低风险高）
 - [x] **界面组视差**（`uiPct`：对话区 `transcriptContent` / 输入框 `ComposerLayoutRoot` / 侧栏 `aside[class*="LeftPanel"]` 三锚点语义选择器，正向随光标浅移（uiPct×4px 满幅）× 壁纸反向深移=纵深差；独立缓动通道不受 wallpaperPct 影响；CSS `translate` 独立属性不碰布局；锚点失配=该组不动，无破坏；heal 每秒重锚定 React 重挂载节点）
 - [x] **界面字体自定义**（`fx.fontFamily`： curated 字体列表 + 自定义名输入，CSS 注入只换界面文字、代码块保持等宽；注入字符串消毒防 CSS 逃逸）
