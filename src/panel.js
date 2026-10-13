@@ -291,13 +291,16 @@
     body.append(slider('缩放', 1, 3, 0.05, num(fx.zoom, 1), (v) => v.toFixed(2) + '×', (v) => cmd({ c: 'fx', k: 'zoom', v })));
     body.append(slider('水平位移', 0, 100, 1, num(fx.panX, 50), (v) => v + '%', (v) => cmd({ c: 'fx', k: 'panX', v })));
     body.append(slider('垂直位移', 0, 100, 1, num(fx.panY, 50), (v) => v + '%', (v) => cmd({ c: 'fx', k: 'panY', v })));
-    body.append(h('div', { class: 'wep-sec' }, '玻璃面板'));
-    body.append(slider('面板·亮色', 0.05, 1, 0.01, num(fx.panelAlpha, 0.55), pct, (v) => cmd({ c: 'fx', k: 'panelAlpha', v })));
-    body.append(slider('面板·暗色', 0.05, 1, 0.01, num(fx.panelAlphaDark, 0.55), pct, (v) => cmd({ c: 'fx', k: 'panelAlphaDark', v })));
-    body.append(slider('磨砂强度', 0, 60, 1, num(fx.panelBlur, 22), px, (v) => cmd({ c: 'fx', k: 'panelBlur', v })));
-    body.append(slider('输入框', 0.05, 1, 0.01, num(fx.composerAlpha, 0.66), pct, (v) => cmd({ c: 'fx', k: 'composerAlpha', v })));
+    body.append(h('div', { class: 'wep-sec' }, '玻璃面板（大背景）'));
+    body.append(slider('面板·亮色', 0, 1, 0.01, num(fx.panelAlpha, 0.22), pct, (v) => cmd({ c: 'fx', k: 'panelAlpha', v })));
+    body.append(slider('面板·暗色', 0, 1, 0.01, num(fx.panelAlphaDark, 0.30), pct, (v) => cmd({ c: 'fx', k: 'panelAlphaDark', v })));
+    body.append(slider('磨砂强度', 0, 60, 1, num(fx.panelBlur, 10), px, (v) => cmd({ c: 'fx', k: 'panelBlur', v })));
+    body.append(slider('输入框', 0, 1, 0.01, num(fx.composerAlpha, 0.55), pct, (v) => cmd({ c: 'fx', k: 'composerAlpha', v })));
+    body.append(h('div', { class: 'wep-sec' }, '对话内容卡片（文字保底）'));
+    body.append(slider('卡片浓度', 0, 1, 0.01, num(fx.contentAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'contentAlpha', v })));
+    body.append(slider('卡片磨砂', 0, 60, 1, num(fx.contentBlur, 18), px, (v) => cmd({ c: 'fx', k: 'contentBlur', v })));
     body.append(toggle('主题随壁纸', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
-    body.append(h('div', { class: 'wep-note' }, '开启后玻璃深浅跟随壁纸明暗（作者配色 → 画面主色）。'));
+    body.append(h('div', { class: 'wep-note' }, '壁纸透出来靠「玻璃面板」压低，文字清楚靠「内容卡片」抬高——两者独立调。开启主题随壁纸后玻璃深浅跟随壁纸明暗。'));
   }
 
   function renderLists() {

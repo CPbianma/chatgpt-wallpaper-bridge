@@ -46,6 +46,9 @@
     switching: false,
     occluded: false,
     tint: null,            // 'light' | 'dark' | null (auto)
+    userThemeOverride: false, // user changed the app theme by hand — yield
+    themeWrite: null,      // last theme we wrote (distinguish our own writes)
+    initialTheme: null,    // app's theme at inject time (restored on destroy)
     battery: null,         // null = unknown
     lastPayload: null,
     // fx canvas
@@ -81,14 +84,19 @@
 
   function panelCss() {
     const fx = state.fx || {};
-    const a = num(fx.panelAlpha, 0.55), ad = num(fx.panelAlphaDark, 0.55);
-    const c = num(fx.composerAlpha, 0.66), b = num(fx.panelBlur, 22);
-    const glass = (r, g, bch, alpha) =>
+    const a = num(fx.panelAlpha, 0.22), ad = num(fx.panelAlphaDark, 0.30);
+    const c = num(fx.composerAlpha, 0.55), b = num(fx.panelBlur, 10);
+    const ca = num(fx.contentAlpha, 0.62), cb = num(fx.contentBlur, 18);
+    const glass = (r, g, bch, alpha, blur) =>
       `background:rgba(${r},${g},${bch},${alpha})!important;` +
-      (b > 0 ? `backdrop-filter:blur(${b}px) saturate(1.35)!important;-webkit-backdrop-filter:blur(${b}px) saturate(1.35)!important;` : '');
-    const L = glass(255, 255, 255, a), D = glass(20, 20, 24, ad);
-    const LC = glass(255, 255, 255, c), DC = glass(28, 28, 33, c);
+      (blur > 0 ? `backdrop-filter:blur(${blur}px) saturate(1.35)!important;-webkit-backdrop-filter:blur(${blur}px) saturate(1.35)!important;` : '');
+    const L = glass(255, 255, 255, a, b), D = glass(20, 20, 24, ad, b);
+    const LC = glass(255, 255, 255, c, b), DC = glass(28, 28, 33, c, b);
+    // readability card behind the transcript column (dsh 文字面保底, adapted)
+    const LT = glass(255, 255, 255, ca, cb) + 'border-radius:14px;';
+    const DT = glass(22, 22, 27, Math.min(1, ca + 0.06), cb) + 'border-radius:14px;';
     const M = 'main[class*="MainContentSurface"]', C = 'main [class*="ComposerLayoutRoot"]';
+    const T = 'main [class*="transcriptContent"]';
     return `
 html,body,#root{background:transparent!important}
 html:not([data-we-tint]) ${M}{${L}}
@@ -99,6 +107,10 @@ html:not([data-we-tint]) ${C}{${LC}}
 html:not([data-we-tint])[data-theme=dark] ${C}{${DC}}
 html[data-we-tint=light] ${C}{${LC}}
 html[data-we-tint=dark] ${C}{${DC}}
+html:not([data-we-tint]) ${T}{${LT}}
+html:not([data-we-tint])[data-theme=dark] ${T}{${DT}}
+html[data-we-tint=light] ${T}{${LT}}
+html[data-we-tint=dark] ${T}{${DT}}
 main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!important;background-image:none!important}
 `.trim();
   }
@@ -233,6 +245,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       const dur = runTransition(state.slots[nextSlot].wrap, oldSlot >= 0 ? state.slots[oldSlot].wrap : null);
       state.active = nextSlot;
       state.currentIndex = index;
+      state.userThemeOverride = false; // new wallpaper — theme-follow resumes (dsh: 换下一张恢复)
       const old = oldSlot >= 0 ? state.slots[oldSlot] : null;
       setTimeout(() => {
         if (state.destroyed) return;
@@ -261,6 +274,46 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const html = document.documentElement;
     if (!t) html.removeAttribute('data-we-tint');
     else html.setAttribute('data-we-tint', t);
+    applyTheme(t);
+  }
+
+  // theme-follow: flip the app's own data-theme so text colors stay readable.
+  // Yields when the user changes the theme by hand (until the next wallpaper),
+  // and never rewrites the same value (dsh's courtesy rules, adapted).
+  function applyTheme(t) {
+    if (!t || !state.fx?.autoTint) return;
+    const html = document.documentElement;
+    if (state.userThemeOverride) return;
+    if (html.getAttribute('data-theme') === t) return;
+    state.themeWrite = t;
+    html.setAttribute('data-theme', t);
+  }
+
+  function initThemeWatch() {
+    state.initialTheme = document.documentElement.getAttribute('data-theme');
+    // External data-theme changes can be the app re-applying its stored theme
+    // (navigation noise) or the user toggling the theme (real intent). They
+    // look identical, so: re-assert once after a beat; only a second external
+    // change within 10s counts as the user fighting us — then yield until the
+    // next wallpaper (dsh's 让位 rule, adapted).
+    let external = [];
+    new MutationObserver(() => {
+      const v = document.documentElement.getAttribute('data-theme');
+      if (state.themeWrite && v === state.themeWrite) { state.themeWrite = null; return; } // our own write
+      if (!v || state.userThemeOverride) return;
+      const now = Date.now();
+      external = external.filter((t) => now - t < 10000);
+      external.push(now);
+      if (external.length >= 2) {
+        state.userThemeOverride = true;
+        external = [];
+        document.documentElement.removeAttribute('data-we-tint');
+        return;
+      }
+      setTimeout(() => {
+        if (!state.destroyed && !state.userThemeOverride && state.tint && state.fx?.autoTint) applyTheme(state.tint);
+      }, 1500);
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
   function sampleMediaTint(el) {
@@ -286,15 +339,30 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     } catch { return null; } // tainted canvas or not ready — keep current tint
   }
 
+  function tintOf(rgb) { return rgb && relLum(rgb[0], rgb[1], rgb[2]) > 0.40 ? 'light' : rgb ? 'dark' : null; }
+
+  // schemeColor (author) and the real frame each get a vote; light only wins
+  // when both agree (dsh's rule — a light schemeColor on a dark wallpaper is
+  // treated as "author didn't fill it properly").
   function updateTint(item) {
     if (!state.fx?.autoTint) { setTint(null); return; }
     const libItem = item?.id != null ? state.lib.find((x) => x.id === item.id) : null;
-    const sc = libItem?.schemeColor;
-    if (sc && sc.length === 3) { setTint(relLum(sc[0], sc[1], sc[2]) > 0.40 ? 'light' : 'dark'); return; }
+    const schemeTint = tintOf(libItem?.schemeColor);
     const s = state.slots[state.active];
-    if (s?.el) {
-      const rgb = sampleMediaTint(s.el);
-      if (rgb) { setTint(relLum(rgb[0], rgb[1], rgb[2]) > 0.40 ? 'light' : 'dark'); return; }
+    const el = s?.el;
+    const forIndex = state.currentIndex;
+    const decide = () => {
+      if (state.destroyed || state.currentIndex !== forIndex) return; // stale vote from the previous wallpaper
+      const frameTint = tintOf(el ? sampleMediaTint(el) : null);
+      if (schemeTint && frameTint && schemeTint !== frameTint) return setTint('dark');
+      setTint(frameTint || schemeTint);
+    };
+    if (el && el.tagName === 'VIDEO' && (el.readyState < 2 || el.currentTime < 0.25)) {
+      // first frames are often black — sample once playback actually shows content
+      el.addEventListener('playing', () => setTimeout(decide, 600), { once: true });
+      setTimeout(decide, 3500); // fallback if 'playing' never fires (occluded window)
+    } else {
+      decide();
     }
   }
 
@@ -543,6 +611,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     }
     if (!document.getElementById(STYLE_ID)) ensureStyle();
     if (fxEnabled() && !document.getElementById(FXC_ID)) ensureFxCanvas();
+    // the app may re-apply its stored theme on navigation — re-assert ours
+    if (state.tint && !state.userThemeOverride && state.fx?.autoTint)
+      applyTheme(state.tint);
     syncPlayback();
   }
 
@@ -550,6 +621,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const boot = () => {
       if (state.destroyed) return;
       ensureBox(); applyFx(); ensureFxCanvas();
+      initThemeWatch();
       state.timers.push(setInterval(heal, HEAL_MS));
       state.timers.push(setInterval(syncPlayback, OCCLUSION_RECHECK_MS));
       document.addEventListener('visibilitychange', syncPlayback);
@@ -583,6 +655,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       document.getElementById(STYLE_ID)?.remove();
       document.getElementById(FXC_ID)?.remove();
       document.documentElement.removeAttribute('data-we-tint');
+      // put the app's theme back the way we found it (dsh: 壁纸退场放回原偏好)
+      if (state.initialTheme) document.documentElement.setAttribute('data-theme', state.initialTheme);
       delete window.__wallpaper;
     },
   };

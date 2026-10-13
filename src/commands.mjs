@@ -10,7 +10,8 @@ const FX_LIMITS = {
   opacity: [0, 1], brightness: [0, 4], contrast: [0, 4], saturate: [0, 4], blur: [0, 40],
   dim: [0, 0.85], panX: [0, 100], panY: [0, 100], zoom: [1, 3],
   rate: [0.25, 3], volume: [0, 1], fadeMs: [0, 5000],
-  panelAlpha: [0.05, 1], panelAlphaDark: [0.05, 1], panelBlur: [0, 60], composerAlpha: [0.05, 1],
+  panelAlpha: [0, 1], panelAlphaDark: [0, 1], panelBlur: [0, 60], composerAlpha: [0, 1],
+  contentAlpha: [0, 1], contentBlur: [0, 60],
   transitionSpeed: [0.4, 3],
 };
 const TRANSITIONS = new Set(['cut', 'fade', 'slide', 'wipe', 'iris', 'zoom']);

@@ -38,7 +38,7 @@ const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'start';
 const rest = cmd === argv[0] ? argv.slice(1) : argv;
 const opt = (name) => { const i = rest.indexOf(name); return i >= 0 && i + 1 < rest.length ? rest[i + 1] : undefined; };
 const hasFlag = (name) => rest.includes(name);
-const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--name', '--key', '--id']);
+const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id']);
 const positionals = () => {
   const out = [];
   for (let i = 0; i < rest.length; i++) {
@@ -450,6 +450,7 @@ async function cmdFx() {
     '--rate': 'rate', '--volume': 'volume', '--fade-ms': 'fadeMs',
     '--transition': 'transition', '--transition-dir': 'transitionDir', '--transition-speed': 'transitionSpeed',
     '--panel-alpha': 'panelAlpha', '--panel-alpha-dark': 'panelAlphaDark', '--panel-blur': 'panelBlur', '--composer-alpha': 'composerAlpha',
+    '--content-alpha': 'contentAlpha', '--content-blur': 'contentBlur',
   };
   let any = false;
   for (const [flag, key] of Object.entries(map)) {

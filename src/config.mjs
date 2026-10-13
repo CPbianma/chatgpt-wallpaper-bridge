@@ -12,12 +12,12 @@ export const PID_FILE = path.join(APP_DIR, 'bridge.pid');
 export const PRESET_DIR = path.join(APP_DIR, 'presets');
 
 export const DEFAULT_FX = {
-  opacity: 0.32,        // wallpaper layer opacity
-  brightness: 0.68,     // wallpaper CSS brightness
-  contrast: 1.0,        // wallpaper CSS contrast
-  saturate: 1.15,       // wallpaper CSS saturate
+  opacity: 0.5,         // wallpaper layer opacity
+  brightness: 0.85,     // wallpaper CSS brightness
+  contrast: 1.05,       // wallpaper CSS contrast
+  saturate: 1.2,        // wallpaper CSS saturate
   blur: 0,              // wallpaper CSS blur px
-  dim: 0,               // black overlay above wallpaper (0..0.8) — 暗化
+  dim: 0.12,            // black overlay above wallpaper (0..0.8) — 暗化
   panX: 50,             // object-position % (0..100)
   panY: 50,
   zoom: 1.0,            // extra scale on media (1..3)
@@ -28,10 +28,12 @@ export const DEFAULT_FX = {
   transition: 'fade',   // cut | fade | slide | wipe | iris | zoom
   transitionSpeed: 1.0, // 0.5 fast? actually multiplier: 0.6 fast, 1 standard, 1.8 slow
   transitionDir: 'left',// for slide/wipe: left|right|up|down
-  panelAlpha: 0.55,     // main conversation surface alpha (light theme)
-  panelAlphaDark: 0.55, // main conversation surface alpha (dark theme)
-  panelBlur: 22,        // backdrop blur for panels
-  composerAlpha: 0.66,  // composer surface alpha
+  panelAlpha: 0.22,     // main conversation surface alpha (light theme)
+  panelAlphaDark: 0.30, // main conversation surface alpha (dark theme)
+  panelBlur: 10,        // backdrop blur for the panel
+  composerAlpha: 0.55,  // composer surface alpha
+  contentAlpha: 0.62,   // transcript card alpha (readability backing)
+  contentBlur: 18,      // transcript card backdrop blur
   autoTint: true,       // theme-follow: glass tint follows wallpaper brightness
 };
 
