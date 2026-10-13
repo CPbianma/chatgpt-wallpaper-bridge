@@ -1,0 +1,41 @@
+ChatGPT Wallpaper bridge — Wallpaper Engine backgrounds inside the official
+Windows ChatGPT / Codex desktop app.
+
+Usage: node src/bridge.mjs [command] [options]
+
+Commands:
+  start                 Attach to the app and inject the wallpaper layer.
+                        Stays in the foreground serving media (Ctrl+C quits).
+  stop                  Remove the layer from the app and stop the bridge.
+  list [--all]          List the Wallpaper Engine library (videos by default,
+                        --all also shows scene/web wallpapers as previews).
+  set <tokens...>       Replace the playlist. Tokens are workshop ids, media
+                        file paths, or (unambiguous) title fragments.
+  add <tokens...>       Append to the playlist.
+  clear                 Empty the playlist.
+  next | prev           Switch wallpaper now (resets the rotation timer).
+  rotate                Configure rotation:
+                          --interval <sec>   seconds per wallpaper (default 600)
+                          --order <mode>     sequential | shuffle
+                          --off / --on       pin the current wallpaper / resume
+  fx                    Tune the visuals:
+                          --opacity <0..1>        wallpaper opacity (0.32)
+                          --brightness <n>        wallpaper brightness (0.68)
+                          --saturate <n>          wallpaper saturation (1.15)
+                          --blur <px>             wallpaper blur (0)
+                          --fade-ms <ms>          crossfade duration (800)
+                          --panel-alpha <0..1>    chat panel opacity, light (0.55)
+                          --panel-alpha-dark <..> chat panel opacity, dark (0.55)
+                          --panel-blur <px>       panel frosted-glass blur (22)
+                          --composer-alpha <0..1> input box opacity (0.66)
+  status                Show bridge state, playlist, and live page state.
+  help                  Show this text.
+
+First run: with an empty playlist, "start" seeds it with every video wallpaper
+found in your Wallpaper Engine workshop library.
+
+Config lives in %LOCALAPPDATA%\ChatGPT-Wallpaper\config.json — edit it directly
+or through the commands above; a running bridge picks up changes within a second.
+
+Requires: Windows, the official ChatGPT or Codex desktop app open, Node.js >= 22.
+The app build must expose its local DevTools endpoint (current builds do).

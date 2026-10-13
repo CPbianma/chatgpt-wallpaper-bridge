@@ -1,0 +1,20 @@
+{
+  "name": "chatgpt-wallpaper-bridge",
+  "version": "0.1.0",
+  "description": "Wallpaper Engine backgrounds (video/image, playlist rotation) inside the official Windows ChatGPT / Codex desktop app — via CDP injection, no app files patched.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/bridge.mjs start",
+    "stop": "node src/bridge.mjs stop",
+    "status": "node src/bridge.mjs status",
+    "list": "node src/bridge.mjs list"
+  },
+  "keywords": ["wallpaper-engine", "chatgpt", "codex", "desktop", "cdp", "wallpaper", "rotation"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CPbianma/chatgpt-wallpaper-bridge.git"
+  }
+}
