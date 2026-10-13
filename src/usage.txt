@@ -33,8 +33,8 @@ Commands:
     --pan-x --pan-y --zoom         framing (object-position %, scale 1..3)
     --rate --volume                video playbackRate, volume 0..1
     --flip / --no-flip             horizontal mirror
-    --transition <t>               cut|fade|slide|wipe|iris|zoom
-    --transition-dir <d>           left|right|up|down (slide/wipe)
+    --transition <t>               cut|fade|slide|wipe|iris|zoom|bars
+    --transition-dir <d>           left|right|up|down (slide/wipe/bars)
     --transition-speed <x>         0.4..3 (multiplies --fade-ms base)
     --panel-alpha --panel-alpha-dark --panel-blur --composer-alpha
     --auto-tint / --no-auto-tint   glass tint follows wallpaper brightness

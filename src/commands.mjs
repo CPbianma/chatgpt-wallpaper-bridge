@@ -14,7 +14,7 @@ const FX_LIMITS = {
   contentAlpha: [0, 1], contentBlur: [0, 60],
   transitionSpeed: [0.4, 3],
 };
-const TRANSITIONS = new Set(['cut', 'fade', 'slide', 'wipe', 'iris', 'zoom']);
+const TRANSITIONS = new Set(['cut', 'fade', 'slide', 'wipe', 'iris', 'zoom', 'bars']);
 const DIRS = new Set(['left', 'right', 'up', 'down']);
 
 function ensureList(cfg) {

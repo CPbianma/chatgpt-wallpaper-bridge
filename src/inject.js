@@ -341,6 +341,22 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   const TRANSITION_DUR = () => clamp(num(state.fx?.fadeMs, 800) * num(state.fx?.transitionSpeed, 1), 0, 8000);
 
+  // 7-slat blinds. One polygon traces all slats with 5 points each (slat rect
+  // + return along the top/left border so connectors stay zero-area); start
+  // (full cover) and end (zero width) share the point count, so a plain CSS
+  // transition interpolates every vertex (dsh bars, clip-path edition).
+  function barsPoly(n, axis, t) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * 100, b = ((i + 1) / n) * 100;
+      const m = (a + b) / 2, half = ((b - a) / 2) * t;
+      const p0 = m - half, p1 = m + half;
+      if (axis === 'X') pts.push(`${p0}% 0%`, `${p1}% 0%`, `${p1}% 100%`, `${p0}% 100%`, `${p0}% 0%`);
+      else pts.push(`0% ${p0}%`, `100% ${p0}%`, `100% ${p1}%`, `0% ${p1}%`, `0% ${p0}%`);
+    }
+    return `polygon(${pts.join(',')})`;
+  }
+
   function runTransition(nextSlotWrap, oldSlotWrap) {
     const type = state.fx?.transition || 'fade';
     const dir = state.fx?.transitionDir || 'left';
@@ -350,10 +366,31 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const clipIn = { left: 'inset(0 100% 0 0)', right: 'inset(0 0 0 100%)', up: 'inset(100% 0 0 0)', down: 'inset(0 0 100% 0)' };
     const wraps = [nextSlotWrap, oldSlotWrap].filter(Boolean);
     for (const w of wraps) { w.style.transitionProperty = 'none'; w.style.transitionDuration = '0ms'; }
+    // stacking: reveal-type transitions (fade/slide/bars) keep the OLD layer on
+    // top while it vacates; grow-type ones (wipe/iris/zoom) animate the new
+    // layer over the old
+    const oldOnTop = type === 'fade' || type === 'slide' || type === 'bars';
+    if (oldSlotWrap) oldSlotWrap.style.zIndex = oldOnTop ? '2' : '1';
+    nextSlotWrap.style.zIndex = oldOnTop ? '1' : '2';
     if (type === 'cut') {
       nextSlotWrap.style.opacity = '1';
       if (oldSlotWrap) oldSlotWrap.style.opacity = '0';
       return 0;
+    }
+    if (type === 'bars') {
+      // next sits ready underneath; the old wallpaper's blinds close over it
+      nextSlotWrap.style.opacity = '1';
+      if (oldSlotWrap) {
+        const barAxis = dir === 'up' || dir === 'down' ? 'Y' : 'X';
+        oldSlotWrap.style.opacity = '1';
+        oldSlotWrap.style.clipPath = barsPoly(7, barAxis, 1);
+        void oldSlotWrap.offsetWidth;
+        oldSlotWrap.style.transitionProperty = 'clip-path';
+        oldSlotWrap.style.transitionDuration = `${dur}ms`;
+        oldSlotWrap.style.transitionTimingFunction = 'ease';
+        oldSlotWrap.style.clipPath = barsPoly(7, barAxis, 0);
+      }
+      return dur;
     }
     // initial poses
     if (type === 'slide') nextSlotWrap.style.transform = `translate${axis}(${sign * 100}%)`;
@@ -376,7 +413,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     return dur;
   }
 
-  function resetWrap(w) { if (!w) return; w.style.transitionProperty = 'none'; w.style.transform = ''; w.style.clipPath = ''; }
+  function resetWrap(w) { if (!w) return; w.style.transitionProperty = 'none'; w.style.transform = ''; w.style.clipPath = ''; w.style.zIndex = ''; }
 
   async function show(index) {
     if (state.switching || state.destroyed) return;

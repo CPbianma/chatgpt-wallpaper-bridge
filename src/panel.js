@@ -274,8 +274,8 @@
     body.append(slider('音量', 0, 1, 0.01, num(fx.volume, 0), pct, (v) => cmd({ c: 'fx', k: 'volume', v })));
     body.append(toggle('水平翻转', !!fx.flipH, (v) => cmd({ c: 'fx', k: 'flipH', v })));
     body.append(h('div', { class: 'wep-sec' }, '切换过场'));
-    body.append(select('动画', [['cut', '硬切'], ['fade', '交叉淡化'], ['slide', '推移'], ['wipe', '擦除'], ['iris', '光圈'], ['zoom', '缩放']], fx.transition || 'fade', (v) => cmd({ c: 'fx', k: 'transition', v })));
-    if (fx.transition === 'slide' || fx.transition === 'wipe')
+    body.append(select('动画', [['cut', '硬切'], ['fade', '交叉淡化'], ['slide', '推移'], ['wipe', '擦除'], ['iris', '光圈'], ['zoom', '缩放'], ['bars', '百叶窗']], fx.transition || 'fade', (v) => cmd({ c: 'fx', k: 'transition', v })));
+    if (fx.transition === 'slide' || fx.transition === 'wipe' || fx.transition === 'bars')
       body.append(select('方向', [['left', '向左'], ['right', '向右'], ['up', '向上'], ['down', '向下']], fx.transitionDir || 'left', (v) => cmd({ c: 'fx', k: 'transitionDir', v })));
     body.append(slider('速度', 0.4, 3, 0.1, num(fx.transitionSpeed, 1), (v) => v.toFixed(1) + '×', (v) => cmd({ c: 'fx', k: 'transitionSpeed', v })));
     body.append(slider('基准时长', 0, 3000, 50, num(fx.fadeMs, 800), (v) => Math.round(v) + 'ms', (v) => cmd({ c: 'fx', k: 'fadeMs', v })));
