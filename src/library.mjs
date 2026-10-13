@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { APP_DIR } from './config.mjs';
 
 const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif)$/i;
@@ -122,6 +123,16 @@ export function scanLibrary() {
       if (item) items.push(item);
     }
   }
+  // user imports live outside Steam (survive workshop churn); id is the
+  // u-<hash> filename base assigned at import time
+  try {
+    for (const f of fs.readdirSync(path.join(APP_DIR, 'uploads'))) {
+      const p = path.join(APP_DIR, 'uploads', f);
+      const id = path.basename(f, path.extname(f));
+      if (isVideoFile(f)) items.push({ id, title: id, kind: 'video', path: p, weType: 'upload', rating: 'unrated', schemeColor: null, thumb: null, live: null });
+      else if (isImageFile(f)) items.push({ id, title: id, kind: 'image', path: p, weType: 'upload', rating: 'unrated', schemeColor: null, thumb: p, live: null });
+    }
+  } catch {}
   const rank = { video: 0, image: 1 };
   return items.sort((a, b) => rank[a.kind] - rank[b.kind] || a.title.localeCompare(b.title));
 }

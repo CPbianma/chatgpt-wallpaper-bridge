@@ -48,13 +48,13 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 
 ### 📋 Phase 3（增强）
 
+- [x] **开机自启**（`autostart [--off]`：HKCU Run 键 → UTF-16 BOM VBS 隐藏启动器——中文用户名路径安全，无控制台窗口闪烁、免 Task Scheduler 提权）
+- [x] **自定义壁纸导入**（`import <files...>` 拷贝进 `uploads/`，id=u-<sha1>，与库同管道参与轮换；页面端因 fetch 白名单不做上传 UI，走 CLI）
 - [ ] ffmpeg 帧率上限转码（NVENC → libx264，缓存键 sha256(abs|mtime|fps)，先播原片转好自动切）
-- [ ] 自定义壁纸上传管理（jpg/png/mp4，落本机目录，与库同管道）
 - [ ] 从 WE 客户端播放列表导入（WE config.json）
 - [ ] 吉祥物拉绳（立绘 + 下拉开抽屉；当前是 FAB 简化版）
 - [ ] 自定义会话头像（MutationObserver 消息行注入，锚点需重钉到 ChatGPT DOM）
 - [ ] 字体 / 光标自定义（系统字体枚举）
-- [ ] 系统托盘常驻 + 开机自启（Task Scheduler）
 - [ ] 界面组视差（输入框/会话区/侧栏分档——需重钉 ChatGPT 锚点，谨慎）
 
 ### ❌ 不迁移（宿主强绑定或无意义）

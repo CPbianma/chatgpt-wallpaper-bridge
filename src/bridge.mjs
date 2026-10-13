@@ -18,7 +18,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { CDP, appPages } from './cdp.mjs';
 import { APP_DIR, CONFIG_FILE, PID_FILE, PRESET_DIR, DEFAULT_FX, readConfig, writeConfig, activeList, numberArg, clamp } from './config.mjs';
-import { scanLibrary, resolveItem, contentType } from './library.mjs';
+import { scanLibrary, resolveItem, contentType, isVideoFile, isImageFile } from './library.mjs';
 import { applyCommand, nextIndex } from './commands.mjs';
 import { createTokenMap } from './tokens.mjs';
 import { startMediaServer, probeHtml, VENDOR_DIR } from './media-server.mjs';
@@ -546,6 +546,56 @@ async function serveFile(c, params, file) {
   await c.send('Fetch.fulfillRequest', { requestId: params.requestId, responseCode: range ? 206 : 200, responseHeaders: hs, body: data.toString('base64') }).catch(() => {});
 }
 
+/* ---------------- autostart & import ---------------- */
+
+// Login autostart via HKCU Run key -> wscript -> hidden VBS launcher (zero
+// console flash, no Task Scheduler elevation, no npm deps).
+const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const RUN_VALUE = 'ChatGPTWallpaper';
+const NODE_EXE = process.execPath;
+const BRIDGE_JS = path.join(SCRIPT_DIR, 'bridge.mjs');
+
+async function cmdAutostart() {
+  const { execFileSync } = await import('node:child_process');
+  const off = hasFlag('--off') || rest[0] === 'off';
+  if (off) {
+    try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true }); console.log('Autostart disabled.'); }
+    catch { console.log('Autostart was not enabled.'); }
+    return;
+  }
+  fs.mkdirSync(APP_DIR, { recursive: true });
+  const vbs = path.join(APP_DIR, 'autostart.vbs');
+  // UTF-16 LE + BOM: wscript parses .vbs as ANSI without one, and the path
+  // may contain non-ANSI characters (e.g. a CJK Windows username)
+  const vbsText = `CreateObject("Wscript.Shell").Run """${NODE_EXE}"" ""${BRIDGE_JS}"" start", 0, False\r\n`;
+  fs.writeFileSync(vbs, Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(vbsText, 'utf16le')]));
+  execFileSync('reg.exe', ['add', RUN_KEY, '/v', RUN_VALUE, '/t', 'REG_SZ', '/d', `wscript.exe "${vbs}"`, '/f'], { windowsHide: true });
+  console.log(`Autostart enabled: ${vbs}`);
+  console.log('The bridge will start hidden at login and attach whenever the app is open.');
+}
+
+// Import local media files as user wallpapers: copied into APP_DIR/uploads so
+// the library survives the source file moving; ids are u-<hash>.
+async function cmdImport() {
+  const files = positionals();
+  if (!files.length) { console.error('import <file...> — jpg/png/gif/mp4/webm/mov'); process.exit(1); }
+  const dir = path.join(APP_DIR, 'uploads');
+  fs.mkdirSync(dir, { recursive: true });
+  const { createHash } = await import('node:crypto');
+  let n = 0;
+  for (const f of files) {
+    const abs = path.resolve(f);
+    if (!fs.existsSync(abs)) { console.error(`  not found: ${abs}`); continue; }
+    if (!isVideoFile(abs) && !isImageFile(abs)) { console.error(`  unsupported type: ${abs}`); continue; }
+    const id = 'u-' + createHash('sha1').update(abs + '|' + fs.statSync(abs).mtimeMs).digest('hex').slice(0, 10);
+    const dest = path.join(dir, id + path.extname(abs).toLowerCase());
+    fs.copyFileSync(abs, dest);
+    console.log(`  imported ${id}  ${path.basename(abs)}`);
+    n++;
+  }
+  if (n) console.log(`Imported ${n} file(s). They appear in the panel's 壁纸 tab within a minute (library rescan), or restart the bridge.`);
+}
+
 /* ---------------- one-shot commands ---------------- */
 
 // Inject probe iframes (virtual host + loopback media origin) into every app
@@ -804,6 +854,8 @@ const main = async () => {
       console.log('Live rendering:', JSON.stringify(readConfig().live));
       return;
     }
+    case 'autostart': return cmdAutostart();
+    case 'import': return cmdImport();
     case 'status': return cmdStatus();
     case 'probe': return cmdProbe();
     case 'help': case '--help': case '-h': return usage();
