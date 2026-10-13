@@ -18,7 +18,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { CDP, appPages } from './cdp.mjs';
 import { APP_DIR, CONFIG_FILE, PID_FILE, PRESET_DIR, DEFAULT_FX, readConfig, writeConfig, activeList, numberArg, clamp } from './config.mjs';
-import { scanLibrary, resolveItem, contentType, isVideoFile, isImageFile } from './library.mjs';
+import { scanLibrary, resolveItem, contentType, isVideoFile, isImageFile, workshopRoots } from './library.mjs';
 import { applyCommand, nextIndex } from './commands.mjs';
 import { createTokenMap } from './tokens.mjs';
 import { startMediaServer, probeHtml, VENDOR_DIR } from './media-server.mjs';
@@ -596,7 +596,97 @@ async function cmdImport() {
   if (n) console.log(`Imported ${n} file(s). They appear in the panel's 壁纸 tab within a minute (library rescan), or restart the bridge.`);
 }
 
-/* ---------------- one-shot commands ---------------- */
+/* ---------------- WE playlist import ---------------- */
+
+// Wallpaper Engine's own client stores playlists in <install>/config.json
+// (per profile, general.playlists; older builds nest them under
+// wallpaperconfig.selectedwallpapers). Items are absolute project paths, so
+// resolution keys off the /431960/<workshop-id>/ segment (dsh's approach,
+// with a folder-name fallback for install-relative entries).
+function weInstallDirs() {
+  const out = [];
+  for (const root of workshopRoots()) // .../steamapps/workshop/content/431960 -> .../steamapps/common/wallpaper_engine
+    out.push(path.resolve(root, '..', '..', '..', 'common', 'wallpaper_engine'));
+  return [...new Set(out)].filter((p) => fs.existsSync(path.join(p, 'config.json')));
+}
+
+function wePlaylistRows(profile) {
+  const general = profile?.general;
+  if (!general || typeof general !== 'object') return [];
+  if (Array.isArray(general.playlists) && general.playlists.length) return general.playlists;
+  const selected = general.wallpaperconfig?.selectedwallpapers;
+  if (!selected || typeof selected !== 'object') return [];
+  return Object.values(selected).map((m) => m?.playlist).filter((p) => p && typeof p === 'object');
+}
+
+function readWePlaylists() {
+  const out = [];
+  const seen = new Set();
+  for (const dir of weInstallDirs()) {
+    let config;
+    try { config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')); } catch { continue; }
+    for (const profile of Object.values(config || {})) {
+      for (const row of wePlaylistRows(profile)) {
+        const items = Array.isArray(row.items) ? row.items.filter((x) => typeof x === 'string' && x.trim()) : [];
+        if (!items.length) continue;
+        const name = (typeof row.name === 'string' && row.name.trim()) || '未命名列表';
+        const sig = `${name}\0${items.join('\0')}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        const settings = row.settings && typeof row.settings === 'object' ? row.settings : {};
+        out.push({ name, items, order: settings.order === 'random' ? 'shuffle' : 'sequential', delayMin: Number.isFinite(settings.delay) ? settings.delay : null });
+      }
+    }
+  }
+  return out;
+}
+
+function weItemToLibId(item, library) {
+  const m = /[\\/]431960[\\/](\d+)[\\/]/i.exec(item);
+  if (m && library.some((x) => x.id === m[1])) return m[1];
+  const folder = /[\\/]([^\\/]+)[\\/][^\\/]+$/i.exec(item);
+  if (folder && library.some((x) => x.id === folder[1])) return folder[1];
+  return null;
+}
+
+async function cmdImportWe() {
+  const rows = readWePlaylists();
+  if (!rows.length) { console.log('No WE playlists found (is Wallpaper Engine installed via Steam?)'); return; }
+  const apply = opt('--apply');
+  if (apply === undefined) {
+    console.log(`Found ${rows.length} WE playlist(s):`);
+    rows.forEach((r, i) => console.log(`  ${i + 1}. 「${r.name}」 ${r.items.length} 张 · ${r.order === 'shuffle' ? '随机' : '顺序'}${r.delayMin ? ` · 每 ${r.delayMin}min` : ''}`));
+    console.log('Import one: import-we --apply <序号|名称>');
+    return;
+  }
+  const library = scanLibrary();
+  const row = rows[Number(apply) - 1] || rows.find((r) => r.name === apply || r.name.includes(apply));
+  if (!row) { console.error(`Playlist not found: ${apply}`); process.exit(1); }
+  const items = [];
+  let missed = 0;
+  for (const it of row.items) {
+    const id = weItemToLibId(it, library);
+    const lib = id ? library.find((x) => x.id === id) : null;
+    if (lib) items.push({ kind: lib.kind, path: lib.path, title: lib.title, id: lib.id });
+    else missed++;
+  }
+  if (!items.length) { console.error('None of the playlist items resolve to your local workshop library.'); process.exit(1); }
+  const cfg = readConfig();
+  const key = 'we-' + Date.now().toString(36);
+  cfg.playlists.push({
+    key, name: row.name.slice(0, 40), items,
+    intervalSec: clamp(Math.round((row.delayMin || 10) * 60), 60, 86400),
+    order: row.order,
+  });
+  cfg.activePlaylist = key;
+  cfg.currentIndex = 0;
+  cfg.lastSwitchAt = Date.now();
+  cfg.epoch = Date.now(); cfg.libEpoch = Date.now();
+  writeConfig(cfg);
+  console.log(`Imported 「${row.name}」 (${items.length} 张${missed ? `, ${missed} 张本地没有已跳过` : ''}), 每 ${Math.round((row.delayMin || 10) * 60)}s, ${row.order === 'shuffle' ? '随机' : '顺序'} — 已设为当前列表。`);
+  await pokePages();
+}
+
 
 // Inject probe iframes (virtual host + loopback media origin) into every app
 // page, wait for their Image-GET reports, then print the matching log lines.
@@ -629,6 +719,8 @@ async function cmdProbe() {
     console.log(lines.length ? lines.join('\n') : '(no probe reports — check the bridge log yourself)');
   } catch { console.log('(bridge log not found — reports go to the bridge process stdout)'); }
 }
+
+/* ---------------- one-shot commands ---------------- */
 
 // Nudge every open page to apply the latest config immediately.
 async function pokePages(expression) {
@@ -856,6 +948,7 @@ const main = async () => {
     }
     case 'autostart': return cmdAutostart();
     case 'import': return cmdImport();
+    case 'import-we': return cmdImportWe();
     case 'status': return cmdStatus();
     case 'probe': return cmdProbe();
     case 'help': case '--help': case '-h': return usage();
