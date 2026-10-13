@@ -31,17 +31,18 @@
 - 明暗双主题玻璃、面板/输入框独立透明度与磨砂、隐藏管理、内容分级（Everyone/PG13/Mature/未分级）
 - 库变更自动重扫（60s）、配置热加载、自愈注入、多页面同步
 
-### 🚧 Phase 2（下一步）：Scene/Web 实时渲染（WebWallGL）
+### 🚧 Phase 2（进行中）：Scene/Web 实时渲染（WebWallGL）
 
 dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0、~5.8k 行）：
 
-- [ ] `lib/webwallgl/` 渲染页经 `/scene-live/` 供给（Fetch 拦截同源 = `wallpaper.local`，contentWindow 直读可行）
-- [ ] `/scene-files/`：scene.pkg 字节供给（ETag/Last-Modified 304 + Range，本地包实测最大 336MB）+ 网页壁纸入口 HTML 注入 `web-shim.js` 与属性 seed + 严格沙箱 iframe
+- [x] `vendor/webwallgl/` 整体内嵌（含 .upstream.json，MIT），渲染页经 `/wallpaper-engine/scene-live/*` 供给——路径与 dsh 完全一致，vendored 文件零改动
+- [x] **loopback 媒体源**（`127.0.0.1` 随机端口）：scene.pkg 实测最大 350MB，CDP base64 单消息不可行——这正是 dsh 开第二端口的教训。`/wallpaper-engine/scene-files/<token>/<sub>`：token 地图门控 + 双层围栏（字面 resolve + realpath 包含）+ Range + ETag/304 + 网页入口 HTML 注入 `web-shim.js` 与站点根声明
+- [x] **srcdoc 活层**（关键架构决策，实测驱动）：应用守卫跨源 iframe 导航（连 Network 事件都不发），fetch 补丁带宿主白名单（`Failed to fetch (host)`）——但 **srcdoc iframe 同源、fetch 原生未补丁、WebGL2 可用**。渲染器以 `<base>` 指向媒体源的 srcdoc 运行，`__wp.setWallpaper(cfg)` 直推配置（about:srcdoc 无 query 可解析），与 dsh live-layer 同款直读控制面
+- [x] 首帧看护：`__wpStats.frame()` = `{fps, running}`（实测窗口），**预算随包体缩放**（15s 基准 + bytes/8MB/s，90s 封顶，dsh 同款公式），**暂停/遮挡期不计时**（无帧有正当理由不算失败）；运行期心跳停帧 → 单次 resume 自救 → 再降级预览图；网页壁纸就绪判据不要求出帧（配置落地 + 1.5s 落定）
+- [x] 活层接入既有设施：过场动画 / 遮挡暂停三档（diffed `__wp.pause/resume/setVolume`——冗余 resume 会重置帧计量器）/ 主题随壁纸（同源 rAF 内抓 WebGL 画布投票）/ 音量
 - [ ] 壁纸属性面板（project.json `general.properties` → 控件，改动 `__wp.updateWebProps`，按壁纸记住）
-- [ ] 首帧看护 + 载荷账本 + 降级链：live iframe → 作者内嵌 MP4（`pkg-read.js` 提取）→ 预览图 → 空态
 - [ ] live 抓帧回填（canvas readback → 桥缓存，轮换时秒切）
-- [ ] 场景音量 / 音频反应
-- [ ] 帧率档（15/30/60）经 iframe query 下发
+- [ ] 帧率档（15/30/60）下发 + 音频反应
 - [ ] 过场补 `bars`（7 板百叶窗，clip-path polygon 4N+1 点插值）
 
 ### 📋 Phase 3（增强）

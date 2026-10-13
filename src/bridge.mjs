@@ -20,12 +20,17 @@ import { CDP, appPages } from './cdp.mjs';
 import { APP_DIR, CONFIG_FILE, PID_FILE, PRESET_DIR, DEFAULT_FX, readConfig, writeConfig, activeList, numberArg, clamp } from './config.mjs';
 import { scanLibrary, resolveItem, contentType } from './library.mjs';
 import { applyCommand, nextIndex } from './commands.mjs';
+import { createTokenMap } from './tokens.mjs';
+import { startMediaServer, probeHtml, VENDOR_DIR } from './media-server.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INJECT_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'inject.js'), 'utf8');
 const PANEL_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'panel.js'), 'utf8');
 const INJECT_ALL = INJECT_SRC + '\n;' + PANEL_SRC;
 const VIRTUAL_HOST = 'https://wallpaper.local';
+const SCENE_LIVE_PREFIX = '/wallpaper-engine/scene-live/';
+const MEDIA_ORIGIN_FILE = path.join(APP_DIR, 'media-origin');
+const LOG_FILE = path.join(APP_DIR, 'bridge.log');
 const CHUNK_BYTES = 2 * 1024 * 1024;
 const ATTACH_POLL_MS = 3000;
 const PUSH_MS = 2500;
@@ -114,6 +119,56 @@ async function cmdStart() {
   let writingSelf = false;
   function writeOwnConfig(c) { writingSelf = true; try { writeConfig(c); } finally { setTimeout(() => { writingSelf = false; }, 300); } }
 
+  // WebWallGL live rendering: token-gated payload dirs + a loopback media
+  // origin (scene.pkg is far too big for base64-over-CDP — see media-server.mjs).
+  const tokens = createTokenMap();
+  let media = null;
+  try {
+    media = await startMediaServer({ tokens, log: (m) => console.log(m) });
+    fs.mkdirSync(APP_DIR, { recursive: true });
+    fs.writeFileSync(MEDIA_ORIGIN_FILE, media.origin, 'utf8');
+    console.log(`[bridge] media origin: ${media.origin} (scene-live + scene-files)`);
+  } catch (e) { console.log(`[bridge] media server failed to start: ${e.message} — live rendering disabled`); }
+
+  // Full WebWallGL render info for the current playlist item, or null.
+  // Consumed by the page's live layer: it builds a same-origin srcdoc iframe
+  // (the app guards cross-origin frame navigations) whose <base> points at the
+  // media origin, so the vendored renderer loads and fetches from there.
+  function liveForCurrent() {
+    if (!media) return null;
+    const item = activeList(cfg)?.items[cfg.currentIndex];
+    if (!item?.id) return null;
+    const lib = library.find((x) => x.id === item.id);
+    if (!lib?.live) return null;
+    const token = tokens.tokenFor(lib.live.dir);
+    const mediaBase = `${media.origin}/wallpaper-engine/scene-files`;
+    if (lib.live.type === 'scene') {
+      // first-frame budget scales with the pkg (dsh: 15s base + bytes/8MBps, 90s cap)
+      const budgetMs = Math.max(15000, Math.min(90000, 15000 + Math.ceil((lib.live.pkgBytes || 0) / 8000)));
+      return { type: 'scene', src: token, mediaBase, budgetMs };
+    }
+    const entry = `${mediaBase}/${token}/${lib.live.entry.split('/').map(encodeURIComponent).join('/')}`;
+    return { type: 'web', src: entry, mediaBase };
+  }
+
+  // Renderer document for the srcdoc iframe: the vendored index.html plus a
+  // <base> so its absolute /wallpaper-engine/scene-live/* references resolve
+  // against the media origin (module scripts are element loads — unaffected
+  // by the app's fetch patch — and carry ACAO:* from our server).
+  let liveDocCache = '';
+  function liveDoc() {
+    if (!media) return '';
+    if (!liveDocCache) {
+      try {
+        const html = fs.readFileSync(path.join(VENDOR_DIR, 'index.html'), 'utf8');
+        liveDocCache = html;
+      } catch { return ''; }
+    }
+    const base = `<base href="${media.origin}${SCENE_LIVE_PREFIX}">`;
+    const m = /<head[^>]*>/i.exec(liveDocCache);
+    return m ? liveDocCache.slice(0, m.index + m[0].length) + base + liveDocCache.slice(m.index + m[0].length) : base + liveDocCache;
+  }
+
   for (const p of cfg.playlists) p.items = p.items.filter((x) => x && x.path && fs.existsSync(x.path));
   if (!activeList(cfg)?.items.length && library.length) {
     // first run convenience: seed the default list with every video wallpaper
@@ -185,6 +240,25 @@ async function cmdStart() {
       if (item?.thumb && fs.existsSync(item.thumb)) return serveFile(c, params, item.thumb);
       return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no thumb').toString('base64'));
     }
+    // page-side diagnostics (Image GET — works even under the app's fetch patch)
+    if (u.pathname === '/api/log') {
+      console.log(`[page] ${(u.searchParams.get('m') || '').slice(0, 300)}`);
+      return fulfill(c, params, 204, [{ name: 'Cache-Control', value: 'no-store' }, { name: 'Access-Control-Allow-Origin', value: '*' }], '');
+    }
+    if (u.pathname === '/probe.html') {
+      return fulfill(c, params, 200, [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }, { name: 'Cache-Control', value: 'no-store' }], Buffer.from(probeHtml(), 'utf8').toString('base64'));
+    }
+    // WebWallGL renderer static files, mirrored on the virtual host. Only small
+    // files live here (index.html + ~1MB renderer JS fit the CDP chunk cap);
+    // wallpaper payloads (scene.pkg up to 336MB) are served by the loopback
+    // media origin, never over CDP.
+    if (u.pathname.startsWith(SCENE_LIVE_PREFIX)) {
+      const rel = decodeURIComponent(u.pathname.slice(SCENE_LIVE_PREFIX.length)) || 'index.html';
+      const target = path.resolve(VENDOR_DIR, rel);
+      if (!target.startsWith(path.resolve(VENDOR_DIR) + path.sep))
+        return fulfill(c, params, 403, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('forbidden').toString('base64'));
+      return serveFile(c, params, target);
+    }
     // playlist media
     const m = /^\/media\/(\d+)$/.exec(u.pathname);
     if (m) {
@@ -219,14 +293,26 @@ async function cmdStart() {
       listName: list?.name || '',
       intervalSec: list?.intervalSec || 600,
       order: list?.order || 'sequential',
-      items: (list?.items || []).map((x) => ({ kind: x.kind, title: x.title, id: x.id })),
+      items: (list?.items || []).map((x) => {
+        const lib = x.id ? library.find((y) => y.id === x.id) : null;
+        return { kind: x.kind, title: x.title, id: x.id, live: lib?.live?.type || null };
+      }),
       playlists: cfg.playlists.map((x) => ({ key: x.key, name: x.name, count: x.items.length, intervalSec: x.intervalSec, order: x.order })),
       fx: cfg.fx,
       occlusion: cfg.occlusion,
       fxLayer: cfg.fxLayer,
       parallax: cfg.parallax,
       presets: listPresets(),
+      // always present (null when the current item is not live-capable) so the
+      // page tears down a stale live layer on rotation to a plain video/image
+      live: liveForCurrent(),
     };
+    // The srcdoc renderer document is pushed once per media-origin lifetime
+    // (the origin port changes every bridge restart, so it doubles as the key).
+    if (forSession && media && forSession.liveDocKey !== media.port) {
+      const doc = liveDoc();
+      if (doc) { p.liveDoc = doc; forSession.liveDocKey = media.port; }
+    }
     if (forSession && forSession.libEpoch !== (cfg.libEpoch || 0)) {
       p.lib = libPayload();
       forSession.libEpoch = cfg.libEpoch || 0;
@@ -285,6 +371,8 @@ async function cmdStart() {
   const shutdown = () => {
     clearInterval(timer); clearInterval(pushTimer); clearInterval(libTimer);
     try { if (Number(fs.readFileSync(PID_FILE, 'utf8')) === process.pid) fs.unlinkSync(PID_FILE); } catch {}
+    try { fs.unlinkSync(MEDIA_ORIGIN_FILE); } catch {}
+    try { media?.server.close(); } catch {}
     for (const s of sessions.values()) s.cdp.close();
     process.exit(0);
   };
@@ -322,19 +410,70 @@ async function serveFile(c, params, file) {
 
 /* ---------------- one-shot commands ---------------- */
 
+// Inject probe iframes (virtual host + loopback media origin) into every app
+// page, wait for their Image-GET reports, then print the matching log lines.
+// This decides which origin the live layer can use and whether the app's
+// fetch patch reaches iframe documents.
+async function cmdProbe() {
+  let origin = '';
+  try { origin = fs.readFileSync(MEDIA_ORIGIN_FILE, 'utf8').trim(); } catch {}
+  if (!origin) { console.error('No media origin recorded — is the bridge running?'); process.exit(1); }
+  const expr = `(() => {
+    const mk = (src) => {
+      const f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;width:8px;height:8px;right:0;bottom:0;opacity:.02;pointer-events:none;';
+      f.src = src;
+      document.documentElement.appendChild(f);
+      setTimeout(() => f.remove(), 15000);
+      return src;
+    };
+    mk(${JSON.stringify(VIRTUAL_HOST + '/probe.html?peer=')} + encodeURIComponent(${JSON.stringify(origin)}));
+    mk(${JSON.stringify(origin + '/probe.html?peer=')} + encodeURIComponent(${JSON.stringify(VIRTUAL_HOST)}));
+    return 'probe iframes injected';
+  })()`;
+  const before = (() => { try { return fs.readFileSync(LOG_FILE, 'utf8').length; } catch { return 0; } })();
+  const n = await pokePages(expr);
+  console.log(`Probe injected into ${n} page(s); waiting 9s for reports…`);
+  await new Promise((r) => setTimeout(r, 9000));
+  try {
+    const text = fs.readFileSync(LOG_FILE, 'utf8').slice(before);
+    const lines = text.split(/\r?\n/).filter((x) => x.includes('[probe'));
+    console.log(lines.length ? lines.join('\n') : '(no probe reports — check the bridge log yourself)');
+  } catch { console.log('(bridge log not found — reports go to the bridge process stdout)'); }
+}
+
 // Nudge every open page to apply the latest config immediately.
 async function pokePages(expression) {
   if (!expression) {
     const cfg = readConfig();
+    const library = scanLibrary();
+    // mirror the bridge's live field so CLI-driven switches to a scene/web
+    // wallpaper don't leave the page holding the previous item's live layer
+    let origin = '';
+    try { origin = fs.readFileSync(MEDIA_ORIGIN_FILE, 'utf8').trim(); } catch {}
+    let live = null;
+    const item = activeList(cfg)?.items[cfg.currentIndex];
+    const lib = item?.id ? library.find((x) => x.id === item.id) : null;
+    if (origin && lib?.live) {
+      const token = Buffer.from(path.resolve(lib.live.dir), 'utf8').toString('base64url');
+      const mediaBase = `${origin}/wallpaper-engine/scene-files`;
+      live = lib.live.type === 'scene'
+        ? { type: 'scene', src: token, mediaBase }
+        : { type: 'web', src: `${mediaBase}/${token}/${lib.live.entry.split('/').map(encodeURIComponent).join('/')}`, mediaBase };
+    }
     const list = activeList(cfg);
     const payload = {
       epoch: cfg.epoch || 0, libEpoch: cfg.libEpoch || 0,
       index: cfg.currentIndex, paused: !!cfg.paused,
       listKey: cfg.activePlaylist, listName: list?.name || '',
       intervalSec: list?.intervalSec || 600, order: list?.order || 'sequential',
-      items: (list?.items || []).map((x) => ({ kind: x.kind, title: x.title, id: x.id })),
+      items: (list?.items || []).map((x) => {
+        const li = x.id ? library.find((y) => y.id === x.id) : null;
+        return { kind: x.kind, title: x.title, id: x.id, live: li?.live?.type || null };
+      }),
       playlists: cfg.playlists.map((x) => ({ key: x.key, name: x.name, count: x.items.length, intervalSec: x.intervalSec, order: x.order })),
       fx: cfg.fx, occlusion: cfg.occlusion, fxLayer: cfg.fxLayer, parallax: cfg.parallax,
+      live,
     };
     expression = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(payload)})`;
   }
@@ -515,6 +654,7 @@ const main = async () => {
     case 'preset': return cmdPreset();
     case 'fx': return cmdFx();
     case 'status': return cmdStatus();
+    case 'probe': return cmdProbe();
     case 'help': case '--help': case '-h': return usage();
     default: console.error(`Unknown command: ${cmd}\n`); usage(); process.exit(1);
   }

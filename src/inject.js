@@ -12,7 +12,7 @@
  * 3D parallax, and self-healing DOM.
  */
 (() => {
-  const API = 5;
+  const API = 6;
   const HOST = 'https://wallpaper.local';
   const BOX_ID = 'codex-wallpaper-layer';
   const DIM_ID = 'codex-wallpaper-dim';
@@ -20,6 +20,8 @@
   const STYLE_ID = 'codex-wallpaper-style';
   const HEAL_MS = 1000;
   const READY_TIMEOUT_MS = 9000;
+  const LIVE_READY_MS = 15000;   // first-frame budget for WebWallGL (pkg fetch + texture decode + shader compile)
+  const LIVE_STALL_MS = 12000;   // heartbeat: no new frame for this long -> degrade
   const OCCLUSION_RECHECK_MS = 3000;
 
   const prev = window.__wallpaper;
@@ -51,6 +53,8 @@
     initialTheme: null,    // app's theme at inject time (restored on destroy)
     battery: null,         // null = unknown
     lastPayload: null,
+    liveInfo: null,        // live render config for the current index (null = plain media)
+    liveDoc: '',           // srcdoc for the WebWallGL renderer iframe (pushed by bridge)
     // fx canvas
     fxCanvas: null, fxCtx: null, fxParts: [], fxRaf: 0, pointer: { x: -1, y: -1 },
     trailPrev: { x: -1, y: -1 }, trailAcc: 0,
@@ -141,7 +145,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const fx = state.fx || {};
     for (const s of state.slots) {
       if (!s || !s.el) continue;
-      s.el.style.objectPosition = `${num(fx.panX, 50)}% ${num(fx.panY, 50)}%`;
+      if (s.kind !== 'live') s.el.style.objectPosition = `${num(fx.panX, 50)}% ${num(fx.panY, 50)}%`;
       s.el.style.transform = `scale(${num(fx.zoom, 1)}) scaleX(${fx.flipH ? -1 : 1})`;
       if (s.el.tagName === 'VIDEO') {
         s.el.playbackRate = clamp(num(fx.rate, 1), 0.25, 3);
@@ -151,11 +155,128 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     }
   }
 
+  /* ================= live layer (WebWallGL scene/web) =================
+   * The vendored renderer runs in a srcdoc iframe: same-origin with the app
+   * page (direct __wp control, dsh live-layer style), element-level module
+   * loads from the loopback media origin via <base> (the app's fetch patch
+   * does not reach the srcdoc window), and no frame navigation for the app's
+   * navigation guard to block. Config is delivered via __wp.setWallpaper()
+   * because about:srcdoc has no query string to parse.
+   */
+
+  function liveCfgFor(live) {
+    return {
+      type: live.type,
+      src: live.src,
+      mediaBase: live.mediaBase,
+      fit: 'cover',
+      sceneFps: 30,
+      muted: !(state.fx && num(state.fx.volume, 0) > 0),
+      webSandbox: live.type === 'web' ? 'strict' : undefined,
+    };
+  }
+
+  function liveWp(slot) {
+    try { return (slot.el && slot.el.contentWindow) || null; } catch { return null; }
+  }
+
+  // Diffed control surface (dsh applyLiveControls): pause/resume/setVolume are
+  // only sent on change — a redundant resume() resets the renderer's frame
+  // meter and would defeat the heartbeat below.
+  function syncLiveSlot(slot, isActive, occluded) {
+    const ctl = slot.liveCtl;
+    if (!ctl || !ctl.configured) return;
+    const w = liveWp(slot);
+    const wp = w && w.__wp;
+    if (!wp) return;
+    const wantPlaying = !!(isActive && !state.paused && !occluded);
+    if (ctl.appliedPlaying !== wantPlaying) {
+      ctl.appliedPlaying = wantPlaying;
+      try { wantPlaying ? wp.resume() : wp.pause(); } catch {}
+    }
+    const vol = isActive ? clamp(num(state.fx?.volume, 0), 0, 1) : 0;
+    if (ctl.appliedVolume !== vol) {
+      ctl.appliedVolume = vol;
+      try { wp.setVolume(vol); } catch {}
+    }
+  }
+
+  // __wpStats.frame() is {fps, running, ...} over a recent 500ms window.
+  // Ready = running && fps>0; a paused/occluded page legitimately reads
+  // {fps:0, running:false}, so the budget only ticks while playback is wanted
+  // (dsh: 暂停期不计时 — 无帧有正当理由就不算失败). Web wallpapers paint no
+  // continuous frames — their readiness is "configured and settled".
+  function liveReady(slot) {
+    const budget = clamp(num(slot.liveCtl?.budgetMs, 0), LIVE_READY_MS, 90000);
+    const isWeb = slot.liveCtl?.cfg?.type === 'web';
+    return new Promise((resolve) => {
+      let waited = 0;
+      let last = Date.now();
+      let configuredAt = 0;
+      const tick = () => {
+        if (state.destroyed) return resolve(false);
+        if (slot.el == null) return resolve(false); // torn down meanwhile
+        const now = Date.now();
+        const frozen = state.paused || state.occluded || document.hidden;
+        if (!frozen) waited += now - last;
+        last = now;
+        const w = liveWp(slot);
+        const ctl = slot.liveCtl;
+        if (w && w.__wp && w.__wpStats && ctl) {
+          if (!ctl.configured) {
+            ctl.configured = true;
+            configuredAt = now;
+            try { w.__wp.setWallpaper(ctl.cfg); } catch {}
+            syncLiveSlot(slot, true, state.occluded); // honor an already-paused state immediately
+          }
+          let st = null;
+          try { st = w.__wpStats.frame(); } catch {}
+          if (st && st.running && st.fps > 0) return resolve(true);
+          if (isWeb && configuredAt && now - configuredAt > 1500) return resolve(true);
+        }
+        if (waited > budget) return resolve(false);
+        setTimeout(tick, 250);
+      };
+      tick();
+    });
+  }
+
+  // Frame sampling for the theme vote: draw the renderer's WebGL canvas inside
+  // the iframe's own rAF (the drawing buffer is still valid there, no
+  // preserveDrawingBuffer needed). Same-origin makes this legal at all.
+  function sampleLiveTint(frame, cb) {
+    let done = false;
+    const finish = (rgb) => { if (!done) { done = true; cb(rgb); } };
+    setTimeout(() => finish(null), 3500);
+    try {
+      const w = frame.contentWindow;
+      w.requestAnimationFrame(() => {
+        try {
+          const cv = w.document.querySelector('canvas');
+          if (!cv || !cv.width || !cv.height) return finish(null);
+          finish(dominantColor((cx, S) => { cx.drawImage(cv, 0, 0, S, S); }));
+        } catch { finish(null); }
+      });
+    } catch { finish(null); }
+  }
+
   /* ================= media & transitions ================= */
 
-  function fillSlot(slotIdx, item, index) {
+  function fillSlot(slotIdx, item, index, live) {
     const slot = state.slots[slotIdx];
-    if (slot.el) { try { slot.el.pause && slot.el.pause(); } catch {} slot.wrap.innerHTML = ''; slot.el = null; }
+    if (slot.el) { try { slot.el.pause && slot.el.pause(); } catch {} slot.wrap.innerHTML = ''; slot.el = null; slot.liveCtl = null; }
+    if (live && state.liveDoc) {
+      const f = document.createElement('iframe');
+      f.setAttribute('allow', 'autoplay');
+      f.setAttribute('title', 'wallpaper-live');
+      Object.assign(f.style, { width: '100%', height: '100%', border: '0', display: 'block' });
+      f.srcdoc = state.liveDoc;
+      slot.wrap.appendChild(f);
+      slot.el = f; slot.index = index; slot.kind = 'live';
+      slot.liveCtl = { cfg: liveCfgFor(live), budgetMs: num(live.budgetMs, 0), configured: false, appliedPlaying: null, appliedVolume: null, lastFrameAt: Date.now(), rescued: false };
+      styleActiveMedia();
+      return f;
+    }
     const isVideo = item.kind === 'video';
     const el = document.createElement(isVideo ? 'video' : 'img');
     el.crossOrigin = 'anonymous'; // media responses carry ACAO:* — keeps canvas tint sampling readable
@@ -170,6 +291,10 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   }
 
   function whenReady(el, kind) {
+    if (kind === 'live') {
+      const slot = state.slots.find((s) => s && s.el === el);
+      return slot ? liveReady(slot) : Promise.resolve(false);
+    }
     return new Promise((resolve) => {
       let done = false;
       const finish = (ok) => { if (!done) { done = true; resolve(ok); } };
@@ -232,16 +357,18 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (index === state.currentIndex && state.active >= 0) return;
     const item = state.items[index];
     if (!item) return;
+    const live = state.liveInfo; // captured with this payload — never mix across payloads
     state.switching = true;
     try {
       const nextSlot = state.active === 0 ? 1 : 0;
       const oldSlot = state.active >= 0 ? state.active : -1;
-      const el = fillSlot(nextSlot, item, index);
-      const ready = await whenReady(el, item.kind);
+      const el = fillSlot(nextSlot, item, index, live);
+      const kind = state.slots[nextSlot].kind;
+      const ready = await whenReady(el, kind);
       if (state.destroyed) return;
       if (!ready) { state.diagFailed = index; return; }
       state.diagFailed = null;
-      if (item.kind === 'video' && !state.paused && !state.occluded) { try { await el.play(); } catch {} }
+      if (kind === 'video' && !state.paused && !state.occluded) { try { await el.play(); } catch {} }
       const dur = runTransition(state.slots[nextSlot].wrap, oldSlot >= 0 ? state.slots[oldSlot].wrap : null);
       state.active = nextSlot;
       state.currentIndex = index;
@@ -316,16 +443,14 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
-  function sampleMediaTint(el) {
+  // 4-bit/channel mode bucket over a 32x32 downscale (draw callback fills it).
+  function dominantColor(draw) {
     try {
       const S = 32;
       const cv = document.createElement('canvas');
       cv.width = cv.height = S;
       const cx = cv.getContext('2d', { willReadFrequently: true });
-      const w = el.tagName === 'VIDEO' ? el.videoWidth : el.naturalWidth;
-      const h = el.tagName === 'VIDEO' ? el.videoHeight : el.naturalHeight;
-      if (!w || !h) return null;
-      cx.drawImage(el, 0, 0, S, S);
+      draw(cx, S);
       const d = cx.getImageData(0, 0, S, S).data;
       const buckets = new Map();
       for (let i = 0; i < d.length; i += 4) {
@@ -336,7 +461,14 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       for (const [k, n] of buckets) if (n > bestN) { bestN = n; best = k; }
       if (best == null) return null;
       return [(best >> 8 & 15) * 17, (best >> 4 & 15) * 17, (best & 15) * 17];
-    } catch { return null; } // tainted canvas or not ready — keep current tint
+    } catch { return null; }
+  }
+
+  function sampleMediaTint(el) {
+    const w = el.tagName === 'VIDEO' ? el.videoWidth : el.naturalWidth;
+    const h = el.tagName === 'VIDEO' ? el.videoHeight : el.naturalHeight;
+    if (!w || !h) return null;
+    return dominantColor((cx, S) => { cx.drawImage(el, 0, 0, S, S); }); // tainted canvas -> null, keep current tint
   }
 
   function tintOf(rgb) { return rgb && relLum(rgb[0], rgb[1], rgb[2]) > 0.40 ? 'light' : rgb ? 'dark' : null; }
@@ -351,18 +483,20 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const s = state.slots[state.active];
     const el = s?.el;
     const forIndex = state.currentIndex;
-    const decide = () => {
+    const decide = (rgb) => {
       if (state.destroyed || state.currentIndex !== forIndex) return; // stale vote from the previous wallpaper
-      const frameTint = tintOf(el ? sampleMediaTint(el) : null);
+      const frameTint = tintOf(rgb);
       if (schemeTint && frameTint && schemeTint !== frameTint) return setTint('dark');
       setTint(frameTint || schemeTint);
     };
-    if (el && el.tagName === 'VIDEO' && (el.readyState < 2 || el.currentTime < 0.25)) {
+    if (!el) return;
+    if (s.kind === 'live') { sampleLiveTint(el, decide); return; }
+    if (el.tagName === 'VIDEO' && (el.readyState < 2 || el.currentTime < 0.25)) {
       // first frames are often black — sample once playback actually shows content
-      el.addEventListener('playing', () => setTimeout(decide, 600), { once: true });
-      setTimeout(decide, 3500); // fallback if 'playing' never fires (occluded window)
+      el.addEventListener('playing', () => setTimeout(() => decide(sampleMediaTint(el)), 600), { once: true });
+      setTimeout(() => decide(sampleMediaTint(el)), 3500); // fallback if 'playing' never fires (occluded window)
     } else {
-      decide();
+      decide(sampleMediaTint(el));
     }
   }
 
@@ -381,8 +515,10 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const occluded = !!reason;
     state.occluded = occluded;
     for (const s of state.slots) {
-      if (!s || !s.el || s.el.tagName !== 'VIDEO') continue;
+      if (!s || !s.el) continue;
       const isActive = state.slots.indexOf(s) === state.active;
+      if (s.kind === 'live') { syncLiveSlot(s, isActive, occluded); continue; }
+      if (s.el.tagName !== 'VIDEO') continue;
       if (!isActive) { if (!s.el.paused) s.el.pause(); continue; }
       if (state.paused || occluded) { if (!s.el.paused) s.el.pause(); }
       else if (s.el.paused && !document.hidden) s.el.play().catch(() => {});
@@ -568,6 +704,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     state.fxLayer = s.fxLayer || {};
     state.parallaxCfg = s.parallax || {};
     state.items = s.items;
+    if ('live' in s) state.liveInfo = s.live || null; // key always sent by the bridge; absent (CLI pokes) = keep
+    if (typeof s.liveDoc === 'string' && s.liveDoc) state.liveDoc = s.liveDoc;
     state.epoch = num(s.epoch, 0);
     state.paused = !!s.paused;
     state.listInfo = { key: s.listKey, name: s.listName, intervalSec: s.intervalSec, order: s.order };
@@ -587,7 +725,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function diag() {
     const s = state.active >= 0 ? state.slots[state.active] : null;
     const v = s && s.el && s.el.tagName === 'VIDEO' ? s.el : null;
-    return { failed: state.diagFailed, index: state.currentIndex, ready: state.active >= 0, playing: v ? !v.paused : null, occluded: state.occluded, tint: state.tint };
+    const live = s && s.kind === 'live' ? { configured: !!(s.liveCtl && s.liveCtl.configured), stalledSec: s.liveCtl ? Math.round((Date.now() - s.liveCtl.lastFrameAt) / 1000) : 0 } : null;
+    return { failed: state.diagFailed, index: state.currentIndex, ready: state.active >= 0, playing: v ? !v.paused : null, occluded: state.occluded, tint: state.tint, live };
   }
 
   /* ================= command channel (page -> bridge) ================= */
@@ -614,6 +753,24 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     // the app may re-apply its stored theme on navigation — re-assert ours
     if (state.tint && !state.userThemeOverride && state.fx?.autoTint)
       applyTheme(state.tint);
+    // live heartbeat: the renderer must keep producing frames while the
+    // wallpaper is meant to animate ({fps,running} over a recent window).
+    // One resume self-rescue, then report as failed so the bridge degrades
+    // (dsh: 先单次 resume 自救，再失败).
+    const act = state.slots[state.active];
+    if (act && act.kind === 'live' && act.liveCtl && act.liveCtl.configured && !state.paused && !state.occluded && !document.hidden) {
+      let st = null;
+      try { const w = act.el.contentWindow; st = w && w.__wpStats ? w.__wpStats.frame() : null; } catch {}
+      const now = Date.now();
+      if (st && st.running && st.fps > 0) { act.liveCtl.lastFrameAt = now; act.liveCtl.rescued = false; }
+      else if (now - act.liveCtl.lastFrameAt > LIVE_STALL_MS && state.diagFailed == null) {
+        if (!act.liveCtl.rescued && st) {
+          act.liveCtl.rescued = true;
+          act.liveCtl.lastFrameAt = now;
+          try { act.el.contentWindow.__wp.resume(); } catch {}
+        } else state.diagFailed = act.index;
+      }
+    }
     syncPlayback();
   }
 

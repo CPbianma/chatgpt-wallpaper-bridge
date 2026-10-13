@@ -67,6 +67,10 @@ export function parseRating(meta) {
 }
 
 // One workshop item -> a bridge-playable entry, or null if nothing usable.
+// `live` marks a WebWallGL-renderable source: scene wallpapers with a pkg
+// container (or a loose scene.json project) and web wallpapers with an HTML
+// entry. The preview image stays the item's `path` — it is both the picker
+// thumbnail and the degradation-chain fallback when live rendering fails.
 function readItem(root, id) {
   const dir = path.join(root, id);
   const pj = path.join(dir, 'project.json');
@@ -83,13 +87,28 @@ function readItem(root, id) {
     schemeColor: parseSchemeColor(meta),
     thumb: hasPreview ? preview : null,
   };
+  let live = null;
+  if (weType === 'scene') {
+    // project.json's `file` names the loose entry (scene.json), but packaged
+    // builds ship scene.pkg instead — and sometimes both claims hold while
+    // only one exists. Mirror WebWallGL's probe order: pkg containers first,
+    // then the loose json.
+    const pkg = ['scene.pkg', 'scenes/scene.pkg', 'gifscene.pkg'].map((p) => path.join(dir, p)).find((p) => fs.existsSync(p));
+    const loose = file && fs.existsSync(file) && /\.json$/i.test(file) ? file : null;
+    let pkgBytes = 0;
+    if (pkg) { try { pkgBytes = fs.statSync(pkg).size; } catch {} }
+    if (pkg || loose) live = { type: 'scene', dir, pkgBytes };
+  } else if (weType === 'web' && file && fs.existsSync(file) && /\.html?$/i.test(file)) {
+    live = { type: 'web', dir, entry: String(meta.file).replaceAll('\\', '/') };
+  }
   if (weType === 'video' && file && fs.existsSync(file) && isVideoFile(file))
     return { ...base, kind: 'video', path: file };
   // Scene / web / application / video-without-file: fall back to the preview image.
   if (hasPreview)
-    return { ...base, kind: 'image', path: preview, title: `${title} (preview)` };
+    return { ...base, kind: 'image', path: preview, title: `${title} (preview)`, live };
   if (file && fs.existsSync(file) && isImageFile(file))
-    return { ...base, kind: 'image', path: file };
+    return { ...base, kind: 'image', path: file, live };
+  if (live) return { ...base, kind: 'image', path: preview || file, live }; // no usable preview, live only
   return null;
 }
 
@@ -131,6 +150,9 @@ export function contentType(file) {
   const ext = path.extname(file).toLowerCase();
   return ({
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/mp4',
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+    '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.wasm': 'application/wasm',
   })[ext] || 'application/octet-stream';
 }
