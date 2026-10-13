@@ -21,8 +21,12 @@ Commands:
   clear                 Empty the active playlist.
   hide <id> | unhide <id>  Hide/restore library cards (files untouched).
   rotate                --interval <sec>  --order sequential|shuffle
+  live                  --on | --off  --fps 15|30|60   Scene/Web real-time
+                        rendering (WebWallGL). Off = preview-image fallback.
   playlist              ls | create --name N | use <key> | rename --name N | delete <key>
   preset                ls | save --name N | apply --name N | delete --name N
+  probe                 Inject connectivity probes; check the bridge log for
+                        fetch/WebGL/iframe capability reports.
   fx                    Tune visuals (no flags = show current):
     --opacity  --brightness  --contrast  --saturate  --blur   wallpaper layer
     --dim                          dark overlay above wallpaper (暗化 0..0.85)

@@ -55,6 +55,10 @@
     lastPayload: null,
     liveInfo: null,        // live render config for the current index (null = plain media)
     liveDoc: '',           // srcdoc for the WebWallGL renderer iframe (pushed by bridge)
+    liveSettings: null,    // { enabled, fps } for the panel
+    propsDefs: null,       // current live wallpaper's user-property defs (panel UI)
+    propsId: '',           // wallpaper id the defs/values belong to
+    propsValues: null,     // user's override wire values for that wallpaper
     // fx canvas
     fxCanvas: null, fxCtx: null, fxParts: [], fxRaf: 0, pointer: { x: -1, y: -1 },
     trailPrev: { x: -1, y: -1 }, trailAcc: 0,
@@ -170,7 +174,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       src: live.src,
       mediaBase: live.mediaBase,
       fit: 'cover',
-      sceneFps: 30,
+      sceneFps: num(live.fps, 30),
       muted: !(state.fx && num(state.fx.volume, 0) > 0),
       webSandbox: live.type === 'web' ? 'strict' : undefined,
     };
@@ -198,6 +202,11 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (ctl.appliedVolume !== vol) {
       ctl.appliedVolume = vol;
       try { wp.setVolume(vol); } catch {}
+    }
+    const fps = clamp(Math.round(num(ctl.cfg?.sceneFps, 30)), 5, 120);
+    if (ctl.configured && ctl.appliedFps !== fps) {
+      ctl.appliedFps = fps;
+      try { wp.setSceneFps && wp.setSceneFps(fps); } catch {}
     }
   }
 
@@ -228,6 +237,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
             configuredAt = now;
             try { w.__wp.setWallpaper(ctl.cfg); } catch {}
             syncLiveSlot(slot, true, state.occluded); // honor an already-paused state immediately
+            applyPropsTo(slot); // user's per-wallpaper overrides, if any
           }
           let st = null;
           try { st = w.__wpStats.frame(); } catch {}
@@ -239,6 +249,22 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       };
       tick();
     });
+  }
+
+  // Push the user's per-wallpaper property overrides into the renderer
+  // (scene: sceneCtl.applyUserProperties; web: shim relay). Diffed by JSON —
+  // the renderer re-runs property scripts on every call, so don't spam it.
+  function applyPropsTo(slot) {
+    const ctl = slot?.liveCtl;
+    if (!ctl || !ctl.configured) return;
+    const w = liveWp(slot);
+    if (!w || !w.__wp || !w.__wp.updateWebProps) return;
+    const vals = state.propsValues || {};
+    const j = JSON.stringify(vals);
+    if (ctl.appliedPropsJson === j) return;
+    ctl.appliedPropsJson = j;
+    if (!Object.keys(vals).length) return; // nothing overridden — renderer defaults stand
+    try { w.__wp.updateWebProps(vals); } catch {}
   }
 
   // Frame sampling for the theme vote: draw the renderer's WebGL canvas inside
@@ -704,8 +730,27 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     state.fxLayer = s.fxLayer || {};
     state.parallaxCfg = s.parallax || {};
     state.items = s.items;
-    if ('live' in s) state.liveInfo = s.live || null; // key always sent by the bridge; absent (CLI pokes) = keep
+    if ('live' in s) {
+      const nl = s.live || null;
+      const keyOf = (l) => (l ? `${l.type}|${l.src}` : '');
+      const rebuild = keyOf(nl) !== keyOf(state.liveInfo);
+      state.liveInfo = nl;
+      // fps 等热字段不进重建键 —— 它们经 setSceneFps 差分下发，不重建槽位
+      if (nl) {
+        const act = state.slots[state.active];
+        if (act && act.kind === 'live' && act.liveCtl) act.liveCtl.cfg.sceneFps = num(nl.fps, 30);
+      }
+      if (rebuild && state.active >= 0) state.currentIndex = -1; // live mode flipped for the current item -> rebuild its slot
+    }
     if (typeof s.liveDoc === 'string' && s.liveDoc) state.liveDoc = s.liveDoc;
+    if (s.liveSettings) state.liveSettings = s.liveSettings;
+    if (Array.isArray(s.propsDefs)) state.propsDefs = s.propsDefs;
+    if (typeof s.propsId === 'string') state.propsId = s.propsId;
+    if (s.propsValues && typeof s.propsValues === 'object') {
+      state.propsValues = s.propsValues;
+      const act = state.slots[state.active];
+      if (act && act.kind === 'live') applyPropsTo(act); // live wallpaper: hot-apply edited props
+    }
     state.epoch = num(s.epoch, 0);
     state.paused = !!s.paused;
     state.listInfo = { key: s.listKey, name: s.listName, intervalSec: s.intervalSec, order: s.order };
@@ -798,7 +843,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     api: API,
     applyState,
     state: diag,
-    fullState: () => ({ payload: state.lastPayload, lib: state.lib, tint: state.tint, occluded: state.occluded }),
+    fullState: () => ({ payload: state.lastPayload, lib: state.lib, tint: state.tint, occluded: state.occluded, propsDefs: state.propsDefs, propsId: state.propsId, propsValues: state.propsValues }),
     cmd: cmdSend,
     destroy() {
       state.destroyed = true;

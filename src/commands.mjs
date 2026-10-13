@@ -105,6 +105,28 @@ export function applyCommand(cfg, cmd, ctx = {}) {
       out.message = `parallax.${cmd.k} = ${cfg.parallax[cmd.k]}`;
       return out;
     }
+    case 'live.set': {
+      if (cmd.enabled !== undefined) cfg.live.enabled = !!cmd.enabled;
+      if (cmd.fps !== undefined) cfg.live.fps = [15, 30, 60].includes(Number(cmd.fps)) ? Number(cmd.fps) : cfg.live.fps;
+      out.message = `live: ${cfg.live.enabled ? 'on' : 'off'}, ${cfg.live.fps}fps`;
+      return out;
+    }
+    case 'props.set': {
+      // per-wallpaper user property override (WE wire values, validated page-side)
+      const id = String(cmd.id || '');
+      const name = String(cmd.name || '');
+      if (!id || !name) return fail('props.set 需要 id 与 name');
+      (cfg.wallpaperProps[id] ||= {})[name] = cmd.value;
+      out.propsChanged = true;
+      out.message = `${id} · ${name} 已更新`;
+      return out;
+    }
+    case 'props.reset': {
+      const id = String(cmd.id || '');
+      if (cfg.wallpaperProps[id]) { delete cfg.wallpaperProps[id]; out.propsChanged = true; }
+      out.message = `已恢复默认属性`;
+      return out;
+    }
 
     case 'list.create': {
       const key = 'list-' + Date.now().toString(36);
@@ -202,7 +224,7 @@ export function applyCommand(cfg, cmd, ctx = {}) {
       const file = path.join(PRESET_DIR, name.replace(/[^\w\-一-龥]+/g, '_') + '.json');
       const snapshot = {
         name, savedAt: new Date().toISOString(),
-        cfg: { playlists: cfg.playlists, activePlaylist: cfg.activePlaylist, currentIndex: cfg.currentIndex, fx: cfg.fx, occlusion: cfg.occlusion, fxLayer: cfg.fxLayer, parallax: cfg.parallax, hidden: cfg.hidden },
+        cfg: { playlists: cfg.playlists, activePlaylist: cfg.activePlaylist, currentIndex: cfg.currentIndex, fx: cfg.fx, occlusion: cfg.occlusion, fxLayer: cfg.fxLayer, parallax: cfg.parallax, live: cfg.live, wallpaperProps: cfg.wallpaperProps, hidden: cfg.hidden },
       };
       fs.writeFileSync(file, JSON.stringify(snapshot, null, 2), 'utf8');
       return { changed: false, libChanged: false, message: `预设已保存: ${name}` };
@@ -220,6 +242,8 @@ export function applyCommand(cfg, cmd, ctx = {}) {
       if (s.occlusion) cfg.occlusion = { ...cfg.occlusion, ...s.occlusion };
       if (s.fxLayer) cfg.fxLayer = { ...cfg.fxLayer, ...s.fxLayer };
       if (s.parallax) cfg.parallax = { ...cfg.parallax, ...s.parallax };
+      if (s.live) cfg.live = { ...cfg.live, ...s.live };
+      if (s.wallpaperProps) { cfg.wallpaperProps = s.wallpaperProps; out.propsChanged = true; }
       if (Array.isArray(s.hidden)) cfg.hidden = s.hidden;
       cfg.lastSwitchAt = Date.now();
       out.libChanged = true;

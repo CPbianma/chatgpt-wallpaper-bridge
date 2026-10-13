@@ -50,6 +50,8 @@ export const DEFAULT_FXLAYER = {
 
 export const DEFAULT_PARALLAX = { enabled: false, wallpaperPct: 1.0, uiPct: 0 };
 
+export const DEFAULT_LIVE = { enabled: true, fps: 30 }; // WebWallGL scene/web real-time rendering
+
 export const DEFAULTS = {
   playlists: [],          // [{ key, name, items: [{kind,path,title,id}], intervalSec, order }]
   activePlaylist: null,   // key
@@ -60,9 +62,12 @@ export const DEFAULTS = {
   occlusion: DEFAULT_OCCLUSION,
   fxLayer: DEFAULT_FXLAYER,
   parallax: DEFAULT_PARALLAX,
+  live: DEFAULT_LIVE,
+  wallpaperProps: {},     // { [wallpaperId]: { [propName]: wireValue } } — user overrides
   hidden: [],             // library ids hidden by the user
   epoch: 0,
   libEpoch: 0,
+  propsEpoch: 0,
 };
 
 const deep = (base, over) => {

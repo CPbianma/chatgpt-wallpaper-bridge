@@ -4,7 +4,7 @@
  * prefixed wep-; root uses class "we-panel" so the fx layer skips its clicks.
  */
 (() => {
-  const PANEL_API = 3;
+  const PANEL_API = 4;
   const wp = window.__wallpaper;
   if (!wp) return { ok: false, reason: 'controller missing' };
   const prev = window.__wallpaperPanel;
@@ -76,6 +76,7 @@
 .wep-pitem .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wep-pitem.cur{outline:1.5px solid #5b8cff}
 .wep-note{font-size:11.5px;opacity:.6;margin-top:8px}
+.wep-color{width:48px;height:26px;border:1px solid rgba(255,255,255,.25);border-radius:6px;background:rgba(255,255,255,.08);padding:2px;cursor:pointer}
 `;
 
   /* ---------- helpers ---------- */
@@ -137,7 +138,7 @@
   let root = null, body = null, tabBar = null;
   let tab = 'wall';
   let filterType = 'all', filterRating = 'all', search = '', showHidden = false;
-  let refreshTimer = 0, lastEpoch = -1, lastIndex = -1, panelBusy = false;
+  let refreshTimer = 0, lastEpoch = -1, lastIndex = -1, lastPropsId = '', panelBusy = false;
 
   const TABS = [['wall', '壁纸'], ['play', '播放'], ['fx', '效果'], ['lists', '轮播'], ['ext', '扩展'], ['sys', '系统']];
 
@@ -187,13 +188,14 @@
     root.append(p);
     render();
     const p0 = payload();
-    lastEpoch = p0.epoch ?? -1; lastIndex = p0.index ?? -1;
+    lastEpoch = p0.epoch ?? -1; lastIndex = p0.index ?? -1; lastPropsId = full().propsId || '';
     clearInterval(refreshTimer);
     refreshTimer = setInterval(() => {
       if (panelBusy || !root.firstChild) return;
       const p1 = payload();
-      if ((p1.epoch ?? -1) !== lastEpoch || (p1.index ?? -1) !== lastIndex) {
-        lastEpoch = p1.epoch ?? -1; lastIndex = p1.index ?? -1;
+      const pr1 = full().propsId || '';
+      if ((p1.epoch ?? -1) !== lastEpoch || (p1.index ?? -1) !== lastIndex || pr1 !== lastPropsId) {
+        lastEpoch = p1.epoch ?? -1; lastIndex = p1.index ?? -1; lastPropsId = pr1;
         render();
       }
     }, 1600);
@@ -277,6 +279,66 @@
       body.append(select('方向', [['left', '向左'], ['right', '向右'], ['up', '向上'], ['down', '向下']], fx.transitionDir || 'left', (v) => cmd({ c: 'fx', k: 'transitionDir', v })));
     body.append(slider('速度', 0.4, 3, 0.1, num(fx.transitionSpeed, 1), (v) => v.toFixed(1) + '×', (v) => cmd({ c: 'fx', k: 'transitionSpeed', v })));
     body.append(slider('基准时长', 0, 3000, 50, num(fx.fadeMs, 800), (v) => Math.round(v) + 'ms', (v) => cmd({ c: 'fx', k: 'fadeMs', v })));
+    renderLiveSection(p);
+  }
+
+  /* ---------- live (WebWallGL) + per-wallpaper user properties ---------- */
+
+  const clamp01 = (x) => Math.min(1, Math.max(0, x));
+  const weColorToHex = (v) => {
+    const parts = String(v ?? '').trim().split(/\s+/).map(Number);
+    if (parts.length < 3 || parts.some((x) => !Number.isFinite(x))) return '#808080';
+    return '#' + parts.slice(0, 3).map((x) => Math.round(clamp01(x) * 255).toString(16).padStart(2, '0')).join('');
+  };
+  const hexToWeColor = (hex) => [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(4)).join(' ');
+
+  function propControl(d, id) {
+    const set = (value) => cmd({ c: 'props.set', id, name: d.name, value });
+    switch (d.ptype) {
+      case 'bool': return toggle(d.text, !!d.value, set);
+      case 'slider': {
+        const min = num(d.min, 0), max = num(d.max, 100);
+        const step = num(d.step, 0) > 0 ? d.step : Math.max(0.01, +(((max - min) / 100).toPrecision(2)));
+        const fmt = (v) => (Math.abs(step) < 1 ? v.toFixed(2) : v.toFixed(1));
+        return slider(d.text, min, max, step, num(d.value, num(d.default, min)), fmt, set);
+      }
+      case 'combo': {
+        const opts = d.options || [];
+        const cur = opts.findIndex((o) => JSON.stringify(o.value) === JSON.stringify(d.value));
+        return select(d.text, opts.map((o, i) => [String(i), o.label]), String(cur < 0 ? 0 : cur), (v) => { const o = opts[Number(v)]; if (o) set(o.value); });
+      }
+      case 'color': {
+        const inp = h('input', { type: 'color', class: 'wep-color', value: weColorToHex(d.value) });
+        inp.addEventListener('input', () => set(hexToWeColor(inp.value)));
+        return h('div', { class: 'wep-row' }, h('label', {}, d.text), inp);
+      }
+      case 'textinput': {
+        const inp = h('input', { class: 'wep-input', value: String(d.value ?? '') });
+        inp.addEventListener('change', () => set(inp.value));
+        return h('div', { class: 'wep-row' }, h('label', {}, d.text), inp);
+      }
+      case 'file':
+        return select(d.text, [['', '（未选择）'], ...(d.files || []).map((f) => [f, f])], String(d.value ?? ''), set);
+      case 'text': return h('div', { class: 'wep-note' }, d.text);
+      default: return null;
+    }
+  }
+
+  function renderLiveSection(p) {
+    const lv = p.liveSettings || { enabled: true, fps: 30 };
+    const curItem = (p.items || [])[p.index];
+    body.append(h('div', { class: 'wep-sec' }, '实时渲染（Scene/Web 壁纸）'));
+    body.append(toggle('启用实时渲染', lv.enabled !== false, (v) => cmd({ c: 'live.set', enabled: v })));
+    body.append(select('渲染帧率', [[15, '15 fps · 省电'], [30, '30 fps · 均衡'], [60, '60 fps · 流畅']], String(num(lv.fps, 30)), (v) => cmd({ c: 'live.set', fps: Number(v) })));
+    if (!curItem?.live) body.append(h('div', { class: 'wep-note' }, '当前壁纸是视频/图片；切到 Scene/Web 壁纸时实时渲染自动生效，失败自动回退预览图。'));
+    // defs are pushed once per (wallpaper, propsEpoch) and persist in the
+    // controller — read the stored copy, not the transient payload key
+    const defs = full().propsDefs, propsId = full().propsId;
+    if (Array.isArray(defs) && defs.length && propsId && propsId === curItem?.id) {
+      body.append(h('div', { class: 'wep-sec' }, `壁纸属性（${defs.length} 项）`));
+      for (const d of defs) { const c = propControl(d, propsId); if (c) body.append(c); }
+      body.append(h('div', { class: 'wep-row' }, confirmBtn('恢复默认属性', () => cmd({ c: 'props.reset', id: propsId }))));
+    }
   }
 
   function renderFx() {

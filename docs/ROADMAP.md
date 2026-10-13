@@ -40,9 +40,9 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 - [x] **srcdoc 活层**（关键架构决策，实测驱动）：应用守卫跨源 iframe 导航（连 Network 事件都不发），fetch 补丁带宿主白名单（`Failed to fetch (host)`）——但 **srcdoc iframe 同源、fetch 原生未补丁、WebGL2 可用**。渲染器以 `<base>` 指向媒体源的 srcdoc 运行，`__wp.setWallpaper(cfg)` 直推配置（about:srcdoc 无 query 可解析），与 dsh live-layer 同款直读控制面
 - [x] 首帧看护：`__wpStats.frame()` = `{fps, running}`（实测窗口），**预算随包体缩放**（15s 基准 + bytes/8MB/s，90s 封顶，dsh 同款公式），**暂停/遮挡期不计时**（无帧有正当理由不算失败）；运行期心跳停帧 → 单次 resume 自救 → 再降级预览图；网页壁纸就绪判据不要求出帧（配置落地 + 1.5s 落定）
 - [x] 活层接入既有设施：过场动画 / 遮挡暂停三档（diffed `__wp.pause/resume/setVolume`——冗余 resume 会重置帧计量器）/ 主题随壁纸（同源 rAF 内抓 WebGL 画布投票）/ 音量
-- [ ] 壁纸属性面板（project.json `general.properties` → 控件，改动 `__wp.updateWebProps`，按壁纸记住）
+- [x] 壁纸属性面板（project.json `general.properties` → dsh 校准版解析器 `src/we-props.mjs`：order 浮点+码位、combo 保类型、localization 逐键回退、editable:false 丢弃；面板播放页渲染 slider/toggle/color/combo/file 控件，`props.set` 经 Image 命令通道回桥、按壁纸持久化 `cfg.wallpaperProps`，页面 `__wp.updateWebProps` JSON 差分热下发）
+- [x] 帧率档（15/30/60，`live.set`；`__wp.setSceneFps` 差分热更新不重建槽位）+ 实时渲染总开关（关=回退预览图）+ 场景音量（`setVolume` 差分）
 - [ ] live 抓帧回填（canvas readback → 桥缓存，轮换时秒切）
-- [ ] 帧率档（15/30/60）下发 + 音频反应
 - [ ] 过场补 `bars`（7 板百叶窗，clip-path polygon 4N+1 点插值）
 
 ### 📋 Phase 3（增强）

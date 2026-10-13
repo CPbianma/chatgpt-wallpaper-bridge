@@ -22,6 +22,7 @@ import { scanLibrary, resolveItem, contentType } from './library.mjs';
 import { applyCommand, nextIndex } from './commands.mjs';
 import { createTokenMap } from './tokens.mjs';
 import { startMediaServer, probeHtml, VENDOR_DIR } from './media-server.mjs';
+import { parseUserPropDefs, entryDirPrefix, filterKnownOverrides } from './we-props.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INJECT_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'inject.js'), 'utf8');
@@ -43,7 +44,7 @@ const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'start';
 const rest = cmd === argv[0] ? argv.slice(1) : argv;
 const opt = (name) => { const i = rest.indexOf(name); return i >= 0 && i + 1 < rest.length ? rest[i + 1] : undefined; };
 const hasFlag = (name) => rest.includes(name);
-const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id']);
+const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps']);
 const positionals = () => {
   const out = [];
   for (let i = 0; i < rest.length; i++) {
@@ -97,6 +98,7 @@ function runCommand(cfg, cmdObj, ctx) {
   if (r.changed) {
     cfg.epoch = Date.now();
     if (r.libChanged) cfg.libEpoch = Date.now();
+    if (r.propsChanged) cfg.propsEpoch = Date.now();
     writeConfig(cfg);
   }
   return r;
@@ -135,20 +137,62 @@ async function cmdStart() {
   // (the app guards cross-origin frame navigations) whose <base> points at the
   // media origin, so the vendored renderer loads and fetches from there.
   function liveForCurrent() {
-    if (!media) return null;
+    if (!media || !cfg.live?.enabled) return null;
     const item = activeList(cfg)?.items[cfg.currentIndex];
     if (!item?.id) return null;
     const lib = library.find((x) => x.id === item.id);
     if (!lib?.live) return null;
     const token = tokens.tokenFor(lib.live.dir);
     const mediaBase = `${media.origin}/wallpaper-engine/scene-files`;
+    const fps = [15, 30, 60].includes(cfg.live.fps) ? cfg.live.fps : 30;
     if (lib.live.type === 'scene') {
       // first-frame budget scales with the pkg (dsh: 15s base + bytes/8MBps, 90s cap)
       const budgetMs = Math.max(15000, Math.min(90000, 15000 + Math.ceil((lib.live.pkgBytes || 0) / 8000)));
-      return { type: 'scene', src: token, mediaBase, budgetMs };
+      return { type: 'scene', src: token, mediaBase, fps, budgetMs };
     }
     const entry = `${mediaBase}/${token}/${lib.live.entry.split('/').map(encodeURIComponent).join('/')}`;
-    return { type: 'web', src: entry, mediaBase };
+    return { type: 'web', src: entry, mediaBase, fps };
+  }
+
+  // Panel-facing user-property defs for the current live wallpaper: parsed
+  // from its project.json (dsh's calibrated parser), with the user's overrides
+  // merged in. File-type props get a shallow listing of the wallpaper dir so
+  // the panel can render a dropdown instead of a text field.
+  const propsCache = new Map(); // dir -> { mtimeMs, project }
+  function readProject(dir) {
+    const pj = path.join(dir, 'project.json');
+    let mtimeMs = 0;
+    try { mtimeMs = fs.statSync(pj).mtimeMs; } catch { return null; }
+    const hit = propsCache.get(dir);
+    if (hit && hit.mtimeMs === mtimeMs) return hit.project;
+    let project = null;
+    try { project = JSON.parse(fs.readFileSync(pj, 'utf8')); } catch {}
+    propsCache.set(dir, { mtimeMs, project });
+    return project;
+  }
+  function propsForCurrent() {
+    const item = activeList(cfg)?.items[cfg.currentIndex];
+    const lib = item?.id ? library.find((x) => x.id === item.id) : null;
+    if (!lib?.live) return null;
+    const project = readProject(lib.live.dir);
+    if (!project) return null;
+    const rawOv = cfg.wallpaperProps[lib.id] || {};
+    const overrides = filterKnownOverrides(project, rawOv); // stale props the author deleted are ignored
+    if (Object.keys(rawOv).length !== Object.keys(overrides).length) {
+      cfg.wallpaperProps[lib.id] = overrides; // self-heal the config; persist on next write
+    }
+    let listFiles = [];
+    try {
+      for (const e of fs.readdirSync(lib.live.dir, { withFileTypes: true })) {
+        if (e.isFile()) listFiles.push(e.name);
+        else if (e.isDirectory() && e.name !== 'shaders') {
+          try { for (const f of fs.readdirSync(path.join(lib.live.dir, e.name))) listFiles.push(`${e.name}/${f}`); } catch {}
+        }
+      }
+    } catch {}
+    const filePrefix = lib.live.type === 'web' ? entryDirPrefix(lib.live.entry) : '';
+    const defs = parseUserPropDefs(project, overrides, { filePrefix, listFiles });
+    return { id: lib.id, defs, values: overrides };
   }
 
   // Renderer document for the srcdoc iframe: the vendored index.html plus a
@@ -306,12 +350,28 @@ async function cmdStart() {
       // always present (null when the current item is not live-capable) so the
       // page tears down a stale live layer on rotation to a plain video/image
       live: liveForCurrent(),
+      liveSettings: cfg.live,
     };
     // The srcdoc renderer document is pushed once per media-origin lifetime
     // (the origin port changes every bridge restart, so it doubles as the key).
     if (forSession && media && forSession.liveDocKey !== media.port) {
       const doc = liveDoc();
       if (doc) { p.liveDoc = doc; forSession.liveDocKey = media.port; }
+    }
+    // User-property defs for the current live wallpaper, gated per session by
+    // (wallpaper id, propsEpoch); the override VALUES ride every push (small,
+    // and the page must converge after missed pushes).
+    if (p.live) {
+      const pr = propsForCurrent();
+      if (pr) {
+        p.propsId = pr.id;
+        p.propsValues = pr.values;
+        const key = `${pr.id}:${cfg.propsEpoch || 0}`;
+        if (forSession && forSession.propsKey !== key) {
+          p.propsDefs = pr.defs;
+          forSession.propsKey = key;
+        }
+      }
     }
     if (forSession && forSession.libEpoch !== (cfg.libEpoch || 0)) {
       p.lib = libPayload();
@@ -454,12 +514,13 @@ async function pokePages(expression) {
     let live = null;
     const item = activeList(cfg)?.items[cfg.currentIndex];
     const lib = item?.id ? library.find((x) => x.id === item.id) : null;
-    if (origin && lib?.live) {
+    if (origin && lib?.live && cfg.live?.enabled) {
       const token = Buffer.from(path.resolve(lib.live.dir), 'utf8').toString('base64url');
       const mediaBase = `${origin}/wallpaper-engine/scene-files`;
+      const fps = [15, 30, 60].includes(cfg.live.fps) ? cfg.live.fps : 30;
       live = lib.live.type === 'scene'
-        ? { type: 'scene', src: token, mediaBase }
-        : { type: 'web', src: `${mediaBase}/${token}/${lib.live.entry.split('/').map(encodeURIComponent).join('/')}`, mediaBase };
+        ? { type: 'scene', src: token, mediaBase, fps, budgetMs: Math.max(15000, Math.min(90000, 15000 + Math.ceil((lib.live.pkgBytes || 0) / 8000))) }
+        : { type: 'web', src: `${mediaBase}/${token}/${lib.live.entry.split('/').map(encodeURIComponent).join('/')}`, mediaBase, fps };
     }
     const list = activeList(cfg);
     const payload = {
@@ -474,6 +535,7 @@ async function pokePages(expression) {
       playlists: cfg.playlists.map((x) => ({ key: x.key, name: x.name, count: x.items.length, intervalSec: x.intervalSec, order: x.order })),
       fx: cfg.fx, occlusion: cfg.occlusion, fxLayer: cfg.fxLayer, parallax: cfg.parallax,
       live,
+      liveSettings: cfg.live,
     };
     expression = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(payload)})`;
   }
@@ -653,6 +715,15 @@ const main = async () => {
     case 'playlist': return cmdPlaylist();
     case 'preset': return cmdPreset();
     case 'fx': return cmdFx();
+    case 'live': {
+      const kw = {};
+      if (hasFlag('--on')) kw.enabled = true;
+      if (hasFlag('--off')) kw.enabled = false;
+      if (opt('--fps') !== undefined) kw.fps = Number(opt('--fps'));
+      if (Object.keys(kw).length) await cliCmd({ c: 'live.set', ...kw });
+      console.log('Live rendering:', JSON.stringify(readConfig().live));
+      return;
+    }
     case 'status': return cmdStatus();
     case 'probe': return cmdProbe();
     case 'help': case '--help': case '-h': return usage();
