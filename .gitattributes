@@ -1,0 +1,3 @@
+# Vendored renderer must stay byte-identical to upstream (hashed asset names,
+# integrity assumptions) — never let autocrlf rewrite it.
+vendor/** text eol=lf
