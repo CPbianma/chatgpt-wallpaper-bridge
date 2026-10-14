@@ -13,6 +13,7 @@
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -125,7 +126,29 @@ function runCommand(cfg, cmdObj, ctx) {
 
 /* ---------------- bridge (start) ---------------- */
 
+// Cross-context singleton lock. A sandboxed launcher (security tools can
+// virtualize AppData for task-spawned processes — observed: the sandboxed
+// bridge saw an empty config dir and auto-seeded defaults over the user's
+// real setup) hides the pid file and config from the real file system, so the
+// on-disk guard alone cannot stop a second bridge from attaching and fighting
+// over the page. A loopback TCP port is not virtualized — hold it for the
+// process lifetime.
+const LOCK_PORT = 28741;
+function acquireBridgeLock() {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(null));
+    srv.listen(LOCK_PORT, '127.0.0.1', () => resolve(srv));
+  });
+}
+
 async function cmdStart() {
+  const lock = await acquireBridgeLock();
+  if (!lock) {
+    console.log('Bridge already running (lock port held). Use "stop" first if you want a restart.');
+    await pokePages();
+    return;
+  }
   const alive = bridgeAlive();
   if (alive) {
     console.log(`Bridge already running (pid ${alive}). Use "stop" first if you want a restart.`);

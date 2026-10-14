@@ -48,7 +48,7 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 
 ### 📋 Phase 3（增强）
 
-- [x] **开机自启**（`autostart [--off]`：**双通道**——任务计划登录任务（30s 延迟，COM API 注册，schtasks.exe 在部分机器被拒）+ 启动文件夹快捷方式（Explorer 自有机制）→ **内联 PowerShell 启动器**（无脚本文件：.vbs 躺在 AppData 是典型恶意软件画像，实测被火绒沙箱化致 WSH 报「找不到脚本文件」；powershell.exe 是签名系统组件，载荷全在任务/快捷方式参数里，UTF-16 端到端中文路径安全）；日志落 `autostart.log` 含启动器标记行；桥 PID 守卫防双开。仍不自启需在安全软件启动项管理里放行）
+- [x] **开机自启**（`autostart [--off]`：**双通道**——任务计划登录任务（30s 延迟，COM API 注册，schtasks.exe 在部分机器被拒）+ 启动文件夹快捷方式（Explorer 自有机制）→ **内联 PowerShell 启动器**（无脚本文件：.vbs 躺在 AppData 是典型恶意软件画像，实测被火绒沙箱化致 WSH 报「找不到脚本文件」；powershell.exe 是签名系统组件，载荷全在任务/快捷方式参数里，UTF-16 端到端中文路径安全）；日志落 `autostart.log` 含启动器标记行；**单例双保险**——pid 文件 + loopback 锁端口 28741（沙盘会虚拟化 AppData：实测沙箱内的桥读到空配置、把默认播放列表和默认吉祥物推给了页面，pid 文件互相不可见；TCP 锁不被虚拟化，跨上下文也能防双开抢页面）。仍不自启或自启后配置"被还原"需在安全软件启动项/沙盘规则里放行）
 - [x] **自定义壁纸导入**（`import <files...>` 拷贝进 `uploads/`，id=u-<sha1>，与库同管道参与轮换；页面端因 fetch 白名单不做上传 UI，走 CLI）
 - [ ] ffmpeg 帧率上限转码（NVENC → libx264，缓存键 sha256(abs|mtime|fps)，先播原片转好自动切）——**前提：系统需有 ffmpeg**（当前机器未安装；现有视频都流畅，按需再做）
 - [x] 从 WE 客户端播放列表导入（`import-we [--apply N]`：读 `<steamapps>/common/wallpaper_engine/config.json` 全 profile，分钟延迟+随机标志映射；实测导入「轮换」35 张全命中本地库）
