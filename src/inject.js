@@ -994,15 +994,26 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     for (const img of t.querySelectorAll('img.we-avatar')) {
       if (!img.parentElement?.hasAttribute('data-we-ava')) img.remove(); // orphaned (React recycle)
     }
+    // markdown containers nest (outer class*="markdown", inner
+    // [data-markdown-text-style]) — each used to get its own avatar, showing
+    // two side by side. The outermost marked host owns the row.
+    for (const host of t.querySelectorAll('[data-we-ava] [data-we-ava]')) {
+      for (const img of host.querySelectorAll(':scope > img.we-avatar')) img.remove();
+      host.removeAttribute('data-we-ava');
+    }
     for (const host of t.querySelectorAll('[data-we-ava]')) {
       const imgs = host.querySelectorAll(':scope > img.we-avatar');
       if (!imgs.length) { host.removeAttribute('data-we-ava'); continue; } // img lost -> re-inject below
       imgs[0].src = host.hasAttribute('data-user-message-bubble') ? avatarSrc('user') : avatarSrc('assistant'); // hot-swap on config change
       for (let i = 1; i < imgs.length; i++) imgs[i].remove(); // dedupe leftovers
     }
+    // skip targets already covered by a marked ancestor (querySelectorAll
+    // returns ancestors first, so marking as we go suppresses nested inserts)
+    const nested = (el) => !!el.parentElement?.closest('[data-we-ava]');
     // user bubbles (right-aligned rows) — skip rows with no real bubble (the
     // bare-row fallback used to land avatars next to the timestamp)
     for (const bubble of t.querySelectorAll('[class*="user-message"] [data-user-message-bubble]:not([data-we-ava])')) {
+      if (nested(bubble)) continue;
       bubble.setAttribute('data-we-ava', '1');
       const img = document.createElement('img');
       img.className = 'we-avatar';
@@ -1013,6 +1024,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     }
     // assistant rows that contain prose (pure tool-call rows get no avatar)
     for (const md of t.querySelectorAll('[class*="agent-activity"] [class*="markdown"]:not([data-we-ava]), [class*="agent-activity"] [data-markdown-text-style]:not([data-we-ava])')) {
+      if (nested(md)) continue;
       md.setAttribute('data-we-ava', '1');
       const img = document.createElement('img');
       img.className = 'we-avatar';
