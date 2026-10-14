@@ -48,7 +48,7 @@ dsh 最值钱的资产是 **可整体搬运的**（vendored、MIT、钉版 2.1.0
 
 ### 📋 Phase 3（增强）
 
-- [x] **开机自启**（`autostart [--off]`：HKCU Run 键 → UTF-16 BOM VBS 隐藏启动器——中文用户名路径安全，无控制台窗口闪烁、免 Task Scheduler 提权）
+- [x] **开机自启**（`autostart [--off]`：HKCU Run 键 → UTF-16 BOM VBS 隐藏启动器——中文用户名路径安全，无控制台窗口闪烁、免 Task Scheduler 提权；经 cmd 包装把 stdout/stderr 落 `autostart.log`，登录期静默失败可回溯）
 - [x] **自定义壁纸导入**（`import <files...>` 拷贝进 `uploads/`，id=u-<sha1>，与库同管道参与轮换；页面端因 fetch 白名单不做上传 UI，走 CLI）
 - [ ] ffmpeg 帧率上限转码（NVENC → libx264，缓存键 sha256(abs|mtime|fps)，先播原片转好自动切）——**前提：系统需有 ffmpeg**（当前机器未安装；现有视频都流畅，按需再做）
 - [x] 从 WE 客户端播放列表导入（`import-we [--apply N]`：读 `<steamapps>/common/wallpaper_engine/config.json` 全 profile，分钟延迟+随机标志映射；实测导入「轮换」35 张全命中本地库）

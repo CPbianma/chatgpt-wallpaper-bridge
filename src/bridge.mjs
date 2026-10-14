@@ -616,9 +616,13 @@ async function cmdAutostart() {
   }
   fs.mkdirSync(APP_DIR, { recursive: true });
   const vbs = path.join(APP_DIR, 'autostart.vbs');
+  // Route through cmd so stdout/stderr land in autostart.log — a silent
+  // launch failure at login is otherwise undebuggable (the hidden console
+  // swallows everything). The doubled-quote wrapper is the cmd /c idiom.
+  const cmdLine = `cmd.exe /c ""${NODE_EXE}" "${BRIDGE_JS}" start >> "${path.join(APP_DIR, 'autostart.log')}" 2>&1"`;
   // UTF-16 LE + BOM: wscript parses .vbs as ANSI without one, and the path
   // may contain non-ANSI characters (e.g. a CJK Windows username)
-  const vbsText = `CreateObject("Wscript.Shell").Run """${NODE_EXE}"" ""${BRIDGE_JS}"" start", 0, False\r\n`;
+  const vbsText = `CreateObject("Wscript.Shell").Run "${cmdLine.replaceAll('"', '""')}", 0, False\r\n`;
   fs.writeFileSync(vbs, Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(vbsText, 'utf16le')]));
   execFileSync('reg.exe', ['add', RUN_KEY, '/v', RUN_VALUE, '/t', 'REG_SZ', '/d', `wscript.exe "${vbs}"`, '/f'], { windowsHide: true });
   console.log(`Autostart enabled: ${vbs}`);
