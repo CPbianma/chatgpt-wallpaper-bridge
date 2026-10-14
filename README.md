@@ -60,7 +60,7 @@
 ## 运行前提
 
 - Windows 10 / 11
-- 官方 **ChatGPT** 或 **Codex** 桌面应用（当前构建暴露本机 DevTools 端口，本工具依赖它注入）
+- 官方 **ChatGPT** 或 **Codex** 桌面应用（必须暴露本机 DevTools 端口，本工具依赖它注入；部分 Codex 构建默认启动时不会开启）
 - **Node.js ≥ 22**（只用内置模块，零 npm 依赖）
 - Wallpaper Engine（Steam）可选——也可以直接 `import` / `set` 本地视频 / 图片文件
 - 可选：Python + `rembg`（`pip install "rembg[cpu]"`）——自定义吉祥物照片自动抠图
@@ -74,6 +74,14 @@ node src/bridge.mjs start
 ```
 
 首次启动且播放列表为空时，会自动把库里的全部视频壁纸收进轮换列表。桥接进程保持前台运行，`Ctrl+C` 或另开终端 `node src/bridge.mjs stop` 停止。
+
+若 `status` 显示 `No app page found`，请完全退出 Codex（包括托盘进程），再从仓库根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\launch-codex-devtools.ps1
+```
+
+该脚本仅适用于 Microsoft Store 版 Codex：它动态查找当前安装目录，只在 `127.0.0.1:12230` 开启 DevTools，确认 `/json/list` 可用后再启动桥接。DevTools 端点没有身份验证；启用期间，同一 Windows 用户下的其他进程可能读取或控制 Codex 页面。完全退出 Codex 并从开始菜单正常启动即可关闭端点。通常不需要管理员权限。
 
 日常建议开一次自启，以后开机即隐身运行、应用一开就挂上：
 
@@ -135,6 +143,7 @@ node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply
 ## 已知限制
 
 - 依赖应用暴露本机 DevTools 端口；若官方未来关闭，注入会失败（届时应改走浏览器扩展或独立 WebView 壳）。
+- 普通图片通过 CDP `Fetch.fulfillRequest` 以单条 base64 消息交付；超大静态图片仍可能受到宿主/CDP 消息大小或内存限制，建议保留原图并使用适合窗口分辨率的显示副本。
 - 桥接进程需常驻；未运行时壁纸层在下次页面刷新后消失，无副作用。
 - 音频反应类场景能听到声音（面板调音量）；WE 的 `application` 类型壁纸两边都不支持。
 
