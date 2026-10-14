@@ -75,10 +75,10 @@ node src/bridge.mjs start
 
 首次启动且播放列表为空时，会自动把库里的全部视频壁纸收进轮换列表。桥接进程保持前台运行，`Ctrl+C` 或另开终端 `node src/bridge.mjs stop` 停止。
 
-日常建议开一次自启，以后开机即隐身运行、应用一开就挂上：
+日常建议开一次自启，以后开机即隐身运行、应用一开就挂上；自启同时会注册并立即启动**看门狗**——桥接进程万一被杀（安全软件强杀、taskkill 等），只要应用开着就会在约一分钟内自动拉起，重启记录写在 `watchdog.log`：
 
 ```powershell
-node src/bridge.mjs autostart        # 关闭: autostart --off
+node src/bridge.mjs autostart        # 关闭: autostart --off（会连带停掉看门狗）
 node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply <名称> 导入
 ```
 
@@ -100,7 +100,8 @@ node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply
 | `avatar --user <图> --assistant <图>` | 会话头像（`--clear`/`--off`） |
 | `import <文件…>` / `import-we [--apply N]` | 导入本地文件 / WE 播放列表 |
 | `preset ls\|save\|apply\|delete` | 整机配置快照 |
-| `autostart [--off]` | 登录后隐藏自启（任务计划 + 启动文件夹双通道） |
+| `autostart [--off]` | 登录后隐藏自启（任务计划 ×2 + 启动文件夹；含看门狗） |
+| `watchdog [off]` | 看门狗：应用开着时桥接被杀自动拉起 |
 
 </details>
 
@@ -135,7 +136,7 @@ node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply
 ## 已知限制
 
 - 依赖应用暴露本机 DevTools 端口；若官方未来关闭，注入会失败（届时应改走浏览器扩展或独立 WebView 壳）。
-- 桥接进程需常驻；未运行时壁纸层在下次页面刷新后消失，无副作用。
+- 桥接进程需常驻；未运行时壁纸层在下次页面刷新后消失，无副作用。看门狗（`autostart` 默认开启）会在桥接意外退出且应用开着时自动拉起；若安全软件（火绒等）反复强杀桥接，请将 `node.exe` 与启动项加入信任区。
 - 音频反应类场景能听到声音（面板调音量）；WE 的 `application` 类型壁纸两边都不支持。
 
 ## 作者与致谢

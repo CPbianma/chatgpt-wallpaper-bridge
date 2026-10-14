@@ -157,6 +157,14 @@ async function cmdStart() {
   }
   killRecordedBridge();
 
+  // Unexpected exits are otherwise silent when stderr is redirected to a file
+  // nobody reads — and a security-tool kill leaves no trace at all. Log any
+  // crash we DO get to see, so the next death distinguishes "crashed" from
+  // "was killed" (the watchdog log covers the restart side).
+  const crashLog = (kind, err) => { try { fs.appendFileSync(path.join(APP_DIR, 'bridge-crash.log'), `${new Date().toISOString()} [${kind}] ${err?.stack || err}\n`); } catch {} };
+  process.on('uncaughtException', (e) => { crashLog('uncaughtException', e); process.exit(1); });
+  process.on('unhandledRejection', (e) => { crashLog('unhandledRejection', e); process.exit(1); });
+
   let cfg = readConfig();
   let library = scanLibrary();
   const sessions = new Map(); // targetId -> { cdp, libEpoch }
@@ -340,6 +348,7 @@ async function cmdStart() {
   }
 
   async function routeRequest(c, params) {
+    if (!c._reqLogged) { c._reqLogged = true; console.log('[bridge] fetch interception live (first request routed)'); }
     const req = params.request || {};
     const u = new URL(req.url || '/', VIRTUAL_HOST);
     // command channel (Image GET from the panel; also usable from any element)
@@ -551,9 +560,16 @@ async function cmdStart() {
     }
     for (const [id, s] of sessions) {
       try {
-        const expr = `window.__wallpaper && window.__wallpaper.applyState(${JSON.stringify(statePayload(s))})`;
+        // applyState is async; Runtime.evaluate without awaitPromise
+        // serializes the returned Promise as {}, so diagnostics never arrived
+        // here and the auto-skip below never fired (found the hard way: a
+        // mid-stream bridge death marked the current wallpaper failed and
+        // nothing advanced past it). Kick applyState fire-and-forget and read
+        // the sticky diagnostics via the synchronous state() in the same
+        // round-trip instead.
+        const expr = `window.__wallpaper && (window.__wallpaper.applyState(${JSON.stringify(statePayload(s))}).catch(() => {}), JSON.stringify(window.__wallpaper.state()))`;
         const r = await s.cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true });
-        const d = r?.result?.value;
+        let d = null; try { d = JSON.parse(r?.result?.value || 'null'); } catch {}
         if (d && d.failed != null && d.failed === cfg.currentIndex && (activeList(cfg)?.items.length || 0) > 1) {
           cfg.currentIndex = nextIndex(cfg, cfg.currentIndex);
           cfg.lastSwitchAt = Date.now();
@@ -640,18 +656,57 @@ async function serveFile(c, params, file) {
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const RUN_VALUE = 'ChatGPTWallpaper'; // legacy location (pre-Task-Scheduler); cleaned on (re)enable
 const TASK_NAME = 'ChatGPTWallpaper';
+const WATCHDOG_TASK_NAME = 'ChatGPTWallpaperWatchdog';
+const WATCHDOG_LOCK_PORT = 28742; // mirrors watchdog.mjs
 const NODE_EXE = process.execPath;
 const BRIDGE_JS = path.join(SCRIPT_DIR, 'bridge.mjs');
+const WATCHDOG_JS = path.join(SCRIPT_DIR, 'watchdog.mjs');
+
+/* ---------------- watchdog control ---------------- */
+
+// The watchdog (src/watchdog.mjs) relaunches the bridge whenever it dies
+// while the app is open — without it the wallpaper only comes back at the
+// next login. Registered at logon by `autostart`; this command is for manual
+// control: `watchdog` starts it now, `watchdog off` stops it (the logon task
+// stays — `autostart --off` removes that too).
+async function cmdWatchdog() {
+  const held = await new Promise((resolve) => {
+    const s = net.connect(WATCHDOG_LOCK_PORT, '127.0.0.1');
+    s.once('connect', () => { s.destroy(); resolve(true); });
+    s.once('error', () => resolve(false));
+    s.setTimeout(1500, () => { s.destroy(); resolve(false); });
+  });
+  if (held) { console.log('Watchdog already running.'); return; }
+  const { spawn } = await import('node:child_process');
+  fs.mkdirSync(APP_DIR, { recursive: true });
+  const out = fs.openSync(path.join(APP_DIR, 'watchdog.log'), 'a');
+  const err = fs.openSync(path.join(APP_DIR, 'watchdog.err.log'), 'a');
+  const child = spawn(process.execPath, [WATCHDOG_JS], { detached: true, windowsHide: true, stdio: ['ignore', out, err] });
+  fs.closeSync(out);
+  fs.closeSync(err);
+  child.unref();
+  console.log(`Watchdog launched (pid ${child.pid}) — the bridge now auto-restarts if it dies while the app is open.`);
+}
+
+async function cmdWatchdogOff() {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync(process.execPath, [WATCHDOG_JS, '--off'], { encoding: 'utf8', windowsHide: true });
+  process.stdout.write(r.stdout || '');
+  process.stderr.write(r.stderr || '');
+}
 
 async function cmdAutostart() {
   const { execFileSync } = await import('node:child_process');
   const off = hasFlag('--off') || rest[0] === 'off';
   const lnk = path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'ChatGPTWallpaper.lnk');
   if (off) {
-    try {
-      execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Unregister-ScheduledTask -TaskName '${TASK_NAME}' -Confirm:$false`], { windowsHide: true });
-      console.log('Autostart task removed.');
-    } catch { console.log('Autostart task was not present.'); }
+    for (const name of [TASK_NAME, WATCHDOG_TASK_NAME]) {
+      try {
+        execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Unregister-ScheduledTask -TaskName '${name}' -Confirm:$false`], { windowsHide: true });
+        console.log(`Autostart task "${name}" removed.`);
+      } catch { console.log(`Autostart task "${name}" was not present.`); }
+    }
+    try { await cmdWatchdogOff(); } catch {}
     try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true }); } catch {}
     try { fs.unlinkSync(lnk); } catch {}
     try { fs.unlinkSync(path.join(APP_DIR, 'autostart.vbs')); } catch {} // legacy launcher
@@ -662,17 +717,27 @@ async function cmdAutostart() {
   const errLog = path.join(APP_DIR, 'autostart.err.log');
   const psCmd = `Start-Process -WindowStyle Hidden -FilePath '${NODE_EXE}' -ArgumentList '${BRIDGE_JS}','start' -RedirectStandardOutput '${log}' -RedirectStandardError '${errLog}'; Add-Content -Path '${log}' -Value ('{0:yyyy-MM-dd HH:mm:ss} [autostart] launcher fired' -f (Get-Date))`;
   const psArgs = `-NoProfile -NonInteractive -WindowStyle Hidden -Command "${psCmd}"`;
+  const wdBootLog = path.join(APP_DIR, 'watchdog-boot.log');
+  const wdBootErr = path.join(APP_DIR, 'watchdog-boot.err.log');
+  const wdPsCmd = `Start-Process -WindowStyle Hidden -FilePath '${NODE_EXE}' -ArgumentList '${WATCHDOG_JS}' -RedirectStandardOutput '${wdBootLog}' -RedirectStandardError '${wdBootErr}'`;
+  const wdPsArgs = `-NoProfile -NonInteractive -WindowStyle Hidden -Command "${wdPsCmd}"`;
   try { fs.unlinkSync(path.join(APP_DIR, 'autostart.vbs')); } catch {} // superseded
   try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true }); } catch {}
   // Register via the ScheduledTasks API, not schtasks.exe — some security
   // tools (and locked-down Home SKUs) deny schtasks outright, while the COM
   // path works for a current-user task without elevation. 30s delay lets the
   // shell settle before node spins up.
+  // Settings fix two silent failure modes seen in the field: the default
+  // DisallowStartIfOnBatteries skips the launch entirely on a battery boot,
+  // and the default 3-day ExecutionTimeLimit would stop the watchdog loop.
   const ps = [
-    `$a = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '${psArgs.replaceAll("'", "''")}'`,
+    `$st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)`,
     `$t = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"`,
     `$t.Delay = 'PT30S'`,
-    `Register-ScheduledTask -TaskName '${TASK_NAME}' -Action $a -Trigger $t -Force | Out-Null`,
+    `$a = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '${psArgs.replaceAll("'", "''")}'`,
+    `Register-ScheduledTask -TaskName '${TASK_NAME}' -Action $a -Trigger $t -Settings $st -Force | Out-Null`,
+    `$wa = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '${wdPsArgs.replaceAll("'", "''")}'`,
+    `Register-ScheduledTask -TaskName '${WATCHDOG_TASK_NAME}' -Action $wa -Trigger $t -Settings $st -Force | Out-Null`,
   ].join('; ');
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true });
   // Second, independent channel: a Startup-folder shortcut (Explorer's own
@@ -681,9 +746,10 @@ async function cmdAutostart() {
   // harmless.
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
     `$s = (New-Object -ComObject WScript.Shell).CreateShortcut('${lnk}'); $s.TargetPath = 'powershell.exe'; $s.Arguments = '${psArgs.replaceAll("'", "''")}'; $s.WindowStyle = 7; $s.Save()`], { windowsHide: true });
-  console.log(`Autostart enabled: logon task "${TASK_NAME}" (30s delay) + Startup-folder shortcut`);
+  console.log(`Autostart enabled: logon tasks "${TASK_NAME}" + "${WATCHDOG_TASK_NAME}" (30s delay, battery-proof) + Startup-folder shortcut`);
   console.log(`Launcher is inline PowerShell (no script file); logs: ${log}`);
   console.log(`If it still doesn't fire at boot, your security tool (火绒) is gating startup items — allow it in 火绒 → 安全工具 → 启动项管理.`);
+  await cmdWatchdog(); // coverage starts now, not just at next login
 }
 
 // Subject extraction for custom mascot art: rembg (u2net) turns an opaque
@@ -1105,6 +1171,7 @@ const main = async () => {
       return;
     }
     case 'autostart': return cmdAutostart();
+    case 'watchdog': return (hasFlag('--off') || rest[0] === 'off') ? cmdWatchdogOff() : cmdWatchdog();
     case 'import': return cmdImport();
     case 'import-we': return cmdImportWe();
     case 'mascot': {

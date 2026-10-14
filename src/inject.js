@@ -47,6 +47,7 @@
     diagFailed: null,
     timers: [],
     switching: false,
+    switchingTo: -1,
     occluded: false,
     tint: null,            // 'light' | 'dark' | null (auto)
     userThemeOverride: false, // user changed the app theme by hand — yield
@@ -491,6 +492,10 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   async function show(index) {
     if (state.destroyed) return;
     if (index === state.currentIndex && state.active >= 0) return;
+    // 2.5s bridge pushes re-request the same index while nothing is active
+    // yet; superseding the in-flight load every 2.5s starves a slow canplay
+    // (READY_TIMEOUT is 9s) and the wallpaper never recovers after a failure.
+    if (state.switching && index === state.switchingTo) return;
     const item = state.items[index];
     if (!item) return;
     // Preemptible switching (rapid 下一张 clicks): a newer show() supersedes an
@@ -498,6 +503,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     // bail out instead of being silently swallowed (dsh: 切换意图永远最新优先)
     state.switchSeq = (state.switchSeq || 0) + 1;
     const seq = state.switchSeq;
+    state.switchingTo = index;
     const stale = () => seq !== state.switchSeq || state.destroyed;
     // degradation chain (dsh): live renderer -> author-embedded MP4 -> preview
     // media; a live failure is remembered for the session so the next rotation
@@ -553,7 +559,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       }, dur + 120);
       updateTint(item);
     } finally {
-      if (seq === state.switchSeq) state.switching = false;
+      if (seq === state.switchSeq) { state.switching = false; state.switchingTo = -1; }
     }
   }
 
