@@ -637,6 +637,22 @@ async function cmdAutostart() {
   console.log('The bridge will start hidden at login and attach whenever the app is open.');
 }
 
+// Subject extraction for custom mascot art: rembg (u2net) turns an opaque
+// photo/illustration into an alpha cutout. One-shot at `mascot --file` time,
+// never on the runtime path; failure falls back to the full frame.
+async function mascotCutout(srcAbs) {
+  const script = path.join(SCRIPT_DIR, '..', 'scripts', 'rembg-cutout.py');
+  const out = path.join(MASCOT_CACHE_DIR, 'custom-cut.png');
+  try {
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('python', ['-P', script, srcAbs, out], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 300000, windowsHide: true });
+    if (fs.existsSync(out) && fs.statSync(out).size > 0) return out;
+  } catch (e) {
+    console.log(`(cutout skipped: ${String(e.message).split('\n')[0]})`);
+  }
+  return null;
+}
+
 // Import local media files as user wallpapers: copied into APP_DIR/uploads so
 // the library survives the source file moving; ids are u-<hash>.
 async function cmdImport() {
@@ -1050,15 +1066,27 @@ const main = async () => {
       if (opt('--size') !== undefined) kw.size = Number(opt('--size'));
       if (opt('--file') !== undefined) {
         // custom mascot image: copy next to the derived cache (kept apart by
-        // the -src suffix so the page-derived custom.png can't clobber it)
+        // the -src suffix so the page-derived custom.png can't clobber it).
+        // Opaque sources get a rembg subject cutout first (透明立绘挂绳效果).
         const abs = path.resolve(opt('--file'));
         if (!fs.existsSync(abs) || !isImageFile(abs)) { console.error(`not an image: ${abs}`); process.exit(1); }
         fs.mkdirSync(MASCOT_CACHE_DIR, { recursive: true });
         for (const f of fs.readdirSync(MASCOT_CACHE_DIR)) {
-          if (f.startsWith('custom-src.') || f === 'custom.png') { try { fs.unlinkSync(path.join(MASCOT_CACHE_DIR, f)); } catch {} }
+          if (f.startsWith('custom-src.') || f === 'custom.png' || f === 'custom-cut.png') { try { fs.unlinkSync(path.join(MASCOT_CACHE_DIR, f)); } catch {} }
         }
-        const dest = 'custom-src' + path.extname(abs).toLowerCase();
-        fs.copyFileSync(abs, path.join(MASCOT_CACHE_DIR, dest));
+        console.log('Extracting subject (rembg; first run downloads the u2net model, ~176MB)…');
+        const cut = await mascotCutout(abs);
+        let dest;
+        if (cut) {
+          dest = 'custom-src.png';
+          fs.copyFileSync(cut, path.join(MASCOT_CACHE_DIR, dest));
+          try { fs.unlinkSync(cut); } catch {}
+          console.log('Subject extracted — transparent cutout.');
+        } else {
+          dest = 'custom-src' + path.extname(abs).toLowerCase();
+          fs.copyFileSync(abs, path.join(MASCOT_CACHE_DIR, dest));
+          console.log('Cutout unavailable — using the full frame.');
+        }
         kw.form = 'custom';
         kw.customFile = dest;
         console.log(`Custom mascot: ${dest}`);

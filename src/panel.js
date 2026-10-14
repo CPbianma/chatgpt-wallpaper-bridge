@@ -28,17 +28,22 @@
   border:1px solid rgba(255,255,255,.35);box-shadow:0 4px 18px rgba(0,0,0,.25);transition:transform .15s}
 .we-fab:hover{transform:scale(1.08)}
 .we-fab svg{width:20px;height:20px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
-/* pull-cord mascot (dsh .we-rope): hangs at the top edge; drag sideways to
-   reposition, pull DOWN to open the panel as a drawer, click to toggle.
-   No CSS filter on the rope (Chromium re-rasterization flash); the art is a
-   page-derived alpha-cropped PNG. */
-.we-rope{position:fixed;top:64px;left:80%;z-index:999992;width:52px;height:57px;cursor:grab;
-  user-select:none;touch-action:none}
+/* pull-cord mascot (dsh .we-rope): a hemp cord hangs from the top edge with
+   the character dangling at its end. Drag sideways to reposition; pull DOWN
+   and the cord stretches (release >56px opens the panel as a drawer); click
+   toggles. No CSS filter on the rope (Chromium re-rasterization flash); the
+   art is a page-derived alpha-cropped PNG. */
+.we-rope{position:fixed;top:64px;left:80%;z-index:999992;width:52px;cursor:grab;
+  user-select:none;touch-action:none;display:flex;flex-direction:column;align-items:center}
 .we-rope.dragging{cursor:grabbing}
-.we-rope.settle{transition:top .28s cubic-bezier(.16,1,.3,1),left .28s cubic-bezier(.16,1,.3,1)}
-.we-rope .we-rope-art{width:100%;height:100%;transition:transform .12s ease}
+.we-rope.settle{transition:left .28s cubic-bezier(.16,1,.3,1)}
+.we-rope.settle .we-rope-cord{transition:height .28s cubic-bezier(.16,1,.3,1)}
+.we-rope-cord{width:4px;height:24px;flex:none;border-radius:2px;
+  background:repeating-linear-gradient(45deg,#c9a06b 0 3px,#8a6a42 3px 6px);
+  box-shadow:0 0 0 .5px rgba(60,40,20,.4)}
+.we-rope-art{width:100%;height:57px;flex:none;transition:transform .12s ease}
 .we-rope:hover .we-rope-art{transform:scale(1.06)}
-.we-rope .we-rope-art img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
+.we-rope-art img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
 .we-panel{position:fixed;right:14px;bottom:148px;width:400px;max-width:calc(100vw - 28px);height:min(620px,calc(100vh - 180px));
   z-index:999991;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;
   background:rgba(30,32,44,.62);backdrop-filter:blur(28px) saturate(1.5);-webkit-backdrop-filter:blur(28px) saturate(1.5);
@@ -221,7 +226,9 @@
   function positionRope(mc = mascotCfg()) {
     if (!rope) return;
     rope.style.width = ROPE_W * mc.size + 'px';
-    rope.style.height = ROPE_H * mc.size + 'px';
+    rope._art.style.height = ROPE_H * mc.size + 'px';
+    rope._cordBase = Math.round(24 * mc.size);
+    if (!rope._pulled) rope._cord.style.height = rope._cordBase + 'px';
     rope._x = clamp(Math.round(mc.xPct * innerWidth - (ROPE_W * mc.size) / 2), 8, innerWidth - ROPE_W * mc.size - 8);
     rope.style.left = rope._x + 'px';
     rope.style.top = ROPE_TOP + 'px';
@@ -279,17 +286,23 @@
 
   function mountRope() {
     rope = h('div', { class: 'we-rope', id: 'we-rope', title: '下拉或点击打开面板 · 左右拖动换位' });
+    const cord = h('div', { class: 'we-rope-cord' });
     const art = h('div', { class: 'we-rope-art' });
     ropeImg = h('img', { draggable: 'false', alt: '' });
     art.append(ropeImg);
-    rope.append(art);
+    rope.append(cord, art);
+    rope._cord = cord;
+    rope._art = art;
+    rope._cordBase = 24;
+    rope._pulled = false;
     rope._x = 8; rope._form = '';
     document.documentElement.append(rope);
 
     let drag = null;
     const settleBack = () => {
       rope.classList.add('settle');
-      rope.style.top = ROPE_TOP + 'px';
+      rope._pulled = false;
+      rope._cord.style.height = rope._cordBase + 'px'; // cord springs back
       setTimeout(() => rope?.classList.remove('settle'), 300);
     };
     rope.addEventListener('pointerdown', (e) => {
@@ -305,7 +318,10 @@
       rope._x = clamp(drag.l0 + dx, 8, innerWidth - rope.offsetWidth - 8);
       const pull = clamp(dy, 0, 140);
       rope.style.left = rope._x + 'px';
-      rope.style.top = (ROPE_TOP + pull) + 'px';
+      // the widget itself stays pinned to the top edge; the CORD stretches,
+      // so the character visibly drops — a real pull-cord, not a moving box
+      rope._pulled = pull > 0;
+      rope._cord.style.height = (rope._cordBase + pull) + 'px';
       // dsh: 下拉拉过阈值 → 抽屉开在绳子下方（面板 z 低于绳子，绳子始终可抓）
       if (pull > 56 && !drag.opened) { drag.opened = true; if (!root.firstChild) togglePanel(rope); }
     });

@@ -980,7 +980,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   function avatarSrc(slot) {
     const a = state.avatars || {};
-    return a[slot] ? `${HOST}/avatar/${encodeURIComponent(a[slot])}` : AVA_DEFAULTS[slot];
+    return a[slot] ? `${HOST}/avatar/${encodeURIComponent(a[slot])}?v=${a.v || 0}` : AVA_DEFAULTS[slot];
   }
 
   function applyAvatars() {

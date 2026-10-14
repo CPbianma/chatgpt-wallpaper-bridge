@@ -133,6 +133,7 @@ export function applyCommand(cfg, cmd, ctx = {}) {
       if (cmd.enabled !== undefined) cfg.avatars.enabled = !!cmd.enabled;
       if (cmd.user !== undefined) cfg.avatars.user = String(cmd.user || '');
       if (cmd.assistant !== undefined) cfg.avatars.assistant = String(cmd.assistant || '');
+      if (cmd.user !== undefined || cmd.assistant !== undefined) cfg.avatars.v = Date.now(); // cache-bust same-filename swaps
       out.message = `avatars: ${cfg.avatars.enabled ? 'on' : 'off'}`;
       return out;
     }
