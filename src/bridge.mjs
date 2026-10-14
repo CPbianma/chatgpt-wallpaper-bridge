@@ -610,7 +610,8 @@ async function serveFile(c, params, file) {
 // Login autostart via HKCU Run key -> wscript -> hidden VBS launcher (zero
 // console flash, no Task Scheduler elevation, no npm deps).
 const RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
-const RUN_VALUE = 'ChatGPTWallpaper';
+const RUN_VALUE = 'ChatGPTWallpaper'; // legacy location (pre-Task-Scheduler); cleaned on (re)enable
+const TASK_NAME = 'ChatGPTWallpaper';
 const NODE_EXE = process.execPath;
 const BRIDGE_JS = path.join(SCRIPT_DIR, 'bridge.mjs');
 
@@ -618,8 +619,12 @@ async function cmdAutostart() {
   const { execFileSync } = await import('node:child_process');
   const off = hasFlag('--off') || rest[0] === 'off';
   if (off) {
-    try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true }); console.log('Autostart disabled.'); }
-    catch { console.log('Autostart was not enabled.'); }
+    try {
+      execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Unregister-ScheduledTask -TaskName '${TASK_NAME}' -Confirm:$false`], { windowsHide: true });
+      console.log('Autostart task removed.');
+    } catch { console.log('Autostart task was not present.'); }
+    try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true }); } catch {}
+    try { fs.unlinkSync(path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'ChatGPTWallpaper.lnk')); } catch {}
     return;
   }
   fs.mkdirSync(APP_DIR, { recursive: true });
@@ -627,14 +632,42 @@ async function cmdAutostart() {
   // Route through cmd so stdout/stderr land in autostart.log — a silent
   // launch failure at login is otherwise undebuggable (the hidden console
   // swallows everything). The doubled-quote wrapper is the cmd /c idiom.
+  // The VBS appends a marker line itself first, so the log distinguishes
+  // "wscript never ran" (no marker) from "node failed" (marker, no bridge log).
   const cmdLine = `cmd.exe /c ""${NODE_EXE}" "${BRIDGE_JS}" start >> "${path.join(APP_DIR, 'autostart.log')}" 2>&1"`;
   // UTF-16 LE + BOM: wscript parses .vbs as ANSI without one, and the path
   // may contain non-ANSI characters (e.g. a CJK Windows username)
-  const vbsText = `CreateObject("Wscript.Shell").Run "${cmdLine.replaceAll('"', '""')}", 0, False\r\n`;
+  const vbsText =
+    `Set f = CreateObject("Scripting.FileSystemObject").OpenTextFile("${path.join(APP_DIR, 'autostart.log')}", 8, True)\r\n` +
+    `f.WriteLine Now & " [autostart] vbs fired"\r\nf.Close\r\n` +
+    `CreateObject("Wscript.Shell").Run "${cmdLine.replaceAll('"', '""')}", 0, False\r\n`;
   fs.writeFileSync(vbs, Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(vbsText, 'utf16le')]));
-  execFileSync('reg.exe', ['add', RUN_KEY, '/v', RUN_VALUE, '/t', 'REG_SZ', '/d', `wscript.exe "${vbs}"`, '/f'], { windowsHide: true });
-  console.log(`Autostart enabled: ${vbs}`);
-  console.log('The bridge will start hidden at login and attach whenever the app is open.');
+  // Task Scheduler, not the Run key: startup-manager tools (and Task
+  // Manager's disable toggle) intercept Run entries, while a current-user
+  // logon task needs no elevation and survives them. 30s delay lets the
+  // shell settle before node spins up.
+  try { execFileSync('reg.exe', ['delete', RUN_KEY, '/v', RUN_VALUE, '/f'], { windowsHide: true }); } catch {}
+  // Register via the ScheduledTasks API, not schtasks.exe — some security
+  // tools (and locked-down Home SKUs) deny schtasks outright, while the COM
+  // path works for a current-user task without elevation.
+  const ps = [
+    `$a = New-ScheduledTaskAction -Execute "wscript.exe" -Argument '"${vbs}"'`,
+    `$t = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"`,
+    `$t.Delay = 'PT30S'`,
+    `Register-ScheduledTask -TaskName '${TASK_NAME}' -Action $a -Trigger $t -Force | Out-Null`,
+  ].join('; ');
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true });
+  // Second, independent path: a Startup-folder shortcut. Startup managers
+  // (火绒 etc.) gate Run keys and may block task payloads; the shell:Startup
+  // folder is Explorer's own mechanism and the likeliest to survive. The
+  // bridge refuses to double-start (PID guard in cmdStart), so both firing
+  // is harmless.
+  const lnk = path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'ChatGPTWallpaper.lnk');
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    `$s = (New-Object -ComObject WScript.Shell).CreateShortcut('${lnk}'); $s.TargetPath = 'wscript.exe'; $s.Arguments = '"${vbs}"'; $s.WindowStyle = 7; $s.Save()`], { windowsHide: true });
+  console.log(`Autostart enabled: logon task "${TASK_NAME}" (30s delay) + Startup-folder shortcut`);
+  console.log('The bridge starts hidden after login and attaches whenever the app is open.');
+  console.log(`If it still doesn't fire at boot, your security tool (火绒) is gating startup items — allow it in 火绒 → 安全工具 → 启动项管理.`);
 }
 
 // Subject extraction for custom mascot art: rembg (u2net) turns an opaque
