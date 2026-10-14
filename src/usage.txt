@@ -28,10 +28,11 @@ Commands:
   probe                 Inject connectivity probes; check the bridge log for
                         fetch/WebGL/iframe capability reports.
   autostart [--off]     Start the bridge hidden at login (Task Scheduler
-                        logon task + Startup-folder shortcut -> hidden VBS
-                        launcher; logs to autostart.log; no console window,
-                        no elevation). If neither fires at boot, check your
-                        security tool's startup-item manager (火绒等).
+                        logon task + Startup-folder shortcut -> inline
+                        PowerShell launcher, no script file; logs to
+                        autostart.log; no console window, no elevation).
+                        If neither fires at boot, check your security tool's
+                        startup-item manager (火绒等).
   import <files...>     Import local jpg/png/gif/mp4/webm/mov as wallpapers
                         (copied to %LOCALAPPDATA%\ChatGPT-Wallpaper\uploads).
   import-we [--apply N] List playlists from the official Wallpaper Engine
