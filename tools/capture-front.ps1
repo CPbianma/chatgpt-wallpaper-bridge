@@ -1,5 +1,5 @@
 param(
-  [string]$Out = 'E:\develop\codex-wallpaper\scratch\shot.png',
+  [string]$Out = (Join-Path $PSScriptRoot '..\scratch\shot.png'),
   [string]$ProcessName = 'ChatGPT'
 )
 Add-Type -AssemblyName System.Drawing

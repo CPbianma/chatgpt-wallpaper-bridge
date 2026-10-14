@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { CDP, appPages } from '../src/cdp.mjs';
 
-const out = process.argv[2] || 'E:\\develop\\codex-wallpaper\\scratch\\cdp-shot.png';
+const out = process.argv[2] || new URL('../scratch/cdp-shot.png', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const pages = await appPages();
 if (!pages.length) { console.error('no app page'); process.exit(1); }
 const c = new CDP(pages[0].webSocketDebuggerUrl);
