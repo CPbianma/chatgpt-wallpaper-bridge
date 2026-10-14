@@ -609,7 +609,9 @@
     body.append(h('div', { class: 'wep-sec' }, '吉祥物拉绳'));
     const mc = mascotCfg();
     body.append(toggle('显示吉祥物', mc.enabled, (v) => cmd({ c: 'mascot.set', enabled: v })));
-    body.append(select('形态', [['whale', 'Deepseek 鲸'], ['maid', '小女仆'], ['portrait', '立绘'], ['vector', '矢量']], mc.form, (v) => cmd({ c: 'mascot.set', form: v })));
+    const forms = [['whale', 'Deepseek 鲸'], ['maid', '小女仆'], ['portrait', '立绘'], ['vector', '矢量']];
+    if (mc.form === 'custom' || payload().mascot?.customFile) forms.push(['custom', '自定义']);
+    body.append(select('形态', forms, mc.form, (v) => cmd({ c: 'mascot.set', form: v })));
     body.append(slider('大小', 0.6, 2, 0.1, mc.size, (v) => v.toFixed(1) + '×', (v) => cmd({ c: 'mascot.set', size: v })));
     body.append(h('div', { class: 'wep-note' }, '顶边小挂件：左右拖动换位，向下拉或点击开合面板（关闭后回到右下角圆钮）。'));
   }

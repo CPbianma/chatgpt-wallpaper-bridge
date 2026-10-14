@@ -122,7 +122,8 @@ export function applyCommand(cfg, cmd, ctx = {}) {
     }
     case 'mascot.set': {
       if (cmd.enabled !== undefined) cfg.mascot.enabled = !!cmd.enabled;
-      if (cmd.form !== undefined && ['whale', 'maid', 'portrait', 'vector'].includes(cmd.form)) cfg.mascot.form = cmd.form;
+      if (cmd.form !== undefined && ['whale', 'maid', 'portrait', 'vector', 'custom'].includes(cmd.form)) cfg.mascot.form = cmd.form;
+      if (cmd.customFile !== undefined) cfg.mascot.customFile = String(cmd.customFile || '');
       if (cmd.xPct !== undefined) cfg.mascot.xPct = clamp(Number(cmd.xPct) || 0, 0, 1);
       if (cmd.size !== undefined) cfg.mascot.size = clamp(Number(cmd.size) || 1, 0.6, 2);
       out.message = `mascot: ${cfg.mascot.enabled ? cfg.mascot.form : 'off'}`;

@@ -987,17 +987,23 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (state.destroyed || !state.avatars?.enabled) return;
     const t = document.querySelector('main [class*="transcriptContent"]');
     if (!t) return;
-    // React may recycle a marked row and drop our img — clear stale markers
-    for (const row of t.querySelectorAll('[data-we-ava]')) {
-      if (!row.querySelector('img.we-avatar')) row.removeAttribute('data-we-ava');
+    // Mark the INSERTION TARGET (bubble / markdown block), not the row: the
+    // [class*=...] selectors match nested wrapper divs too, and a row-level
+    // marker can't stop two nested matches from each inserting into the same
+    // bubble (that bug stacked duplicate avatars).
+    for (const img of t.querySelectorAll('img.we-avatar')) {
+      if (!img.parentElement?.hasAttribute('data-we-ava')) img.remove(); // orphaned (React recycle)
     }
-    // refresh src on already-injected avatars (custom image may have changed)
-    for (const img of t.querySelectorAll('[class*="user-message"] img.we-avatar')) img.src = avatarSrc('user');
-    for (const img of t.querySelectorAll('[class*="agent-activity"] img.we-avatar')) img.src = avatarSrc('assistant');
-    // user bubbles (right-aligned rows)
-    for (const row of t.querySelectorAll('[class*="user-message"]:not([data-we-ava])')) {
-      row.setAttribute('data-we-ava', '1');
-      const bubble = row.querySelector('[data-user-message-bubble]') || row;
+    for (const host of t.querySelectorAll('[data-we-ava]')) {
+      const imgs = host.querySelectorAll(':scope > img.we-avatar');
+      if (!imgs.length) { host.removeAttribute('data-we-ava'); continue; } // img lost -> re-inject below
+      imgs[0].src = host.hasAttribute('data-user-message-bubble') ? avatarSrc('user') : avatarSrc('assistant'); // hot-swap on config change
+      for (let i = 1; i < imgs.length; i++) imgs[i].remove(); // dedupe leftovers
+    }
+    // user bubbles (right-aligned rows) — skip rows with no real bubble (the
+    // bare-row fallback used to land avatars next to the timestamp)
+    for (const bubble of t.querySelectorAll('[class*="user-message"] [data-user-message-bubble]:not([data-we-ava])')) {
+      bubble.setAttribute('data-we-ava', '1');
       const img = document.createElement('img');
       img.className = 'we-avatar';
       img.src = avatarSrc('user');
@@ -1006,10 +1012,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       bubble.insertBefore(img, bubble.firstChild);
     }
     // assistant rows that contain prose (pure tool-call rows get no avatar)
-    for (const row of t.querySelectorAll('[class*="agent-activity"]:not([data-we-ava])')) {
-      const md = row.querySelector('[class*="markdown"], [data-markdown-text-style]');
-      if (!md) continue;
-      row.setAttribute('data-we-ava', '1');
+    for (const md of t.querySelectorAll('[class*="agent-activity"] [class*="markdown"]:not([data-we-ava]), [class*="agent-activity"] [data-markdown-text-style]:not([data-we-ava])')) {
+      md.setAttribute('data-we-ava', '1');
       const img = document.createElement('img');
       img.className = 'we-avatar';
       img.src = avatarSrc('assistant');

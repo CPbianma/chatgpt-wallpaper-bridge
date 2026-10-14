@@ -50,6 +50,7 @@ const MASCOT_FILES = {
   portrait: 'alternate-portrait-937x1679.png',
   vector: 'vector-960x1024.svg',
 };
+const MASCOT_FORMS = new Set([...Object.keys(MASCOT_FILES), 'custom']); // custom = user image via mascot --file
 const CHUNK_BYTES = 2 * 1024 * 1024;
 const ATTACH_POLL_MS = 3000;
 const PUSH_MS = 2500;
@@ -62,7 +63,7 @@ const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'start';
 const rest = cmd === argv[0] ? argv.slice(1) : argv;
 const opt = (name) => { const i = rest.indexOf(name); return i >= 0 && i + 1 < rest.length ? rest[i + 1] : undefined; };
 const hasFlag = (name) => rest.includes(name);
-const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps', '--font', '--user', '--assistant', '--form', '--size']);
+const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps', '--font', '--user', '--assistant', '--form', '--size', '--file']);
 const positionals = () => {
   const out = [];
   for (let i = 0; i < rest.length; i++) {
@@ -387,8 +388,15 @@ async function cmdStart() {
     // back over the Image GET channel (same pattern as /api/frame).
     const ms = /^\/mascot\/([\w-]+)$/.exec(u.pathname);
     if (ms) {
-      const f = MASCOT_FILES[ms[1]];
-      const file = f && path.join(MASCOT_DIR, f);
+      let file = null;
+      if (MASCOT_FILES[ms[1]]) file = path.join(MASCOT_DIR, MASCOT_FILES[ms[1]]);
+      else if (ms[1] === 'custom') {
+        // user-provided mascot (mascot --file), kept apart from the derived cache
+        try {
+          const f = fs.readdirSync(MASCOT_CACHE_DIR).find((x) => x.startsWith('custom-src.'));
+          if (f) file = path.join(MASCOT_CACHE_DIR, f);
+        } catch {}
+      }
       if (file && fs.existsSync(file)) return serveFile(c, params, file);
       return fulfill(c, params, 404, [{ name: 'Content-Type', value: 'text/plain' }], Buffer.from('no mascot').toString('base64'));
     }
@@ -401,7 +409,7 @@ async function cmdStart() {
     if (u.pathname === '/api/mascot-cache') {
       const form = (u.searchParams.get('form') || '').replace(/[^\w-]/g, '');
       const d = u.searchParams.get('d') || '';
-      if (MASCOT_FILES[form] && d && d.length <= 600000) {
+      if (MASCOT_FORMS.has(form) && d && d.length <= 600000) {
         try {
           fs.mkdirSync(MASCOT_CACHE_DIR, { recursive: true });
           fs.writeFileSync(path.join(MASCOT_CACHE_DIR, `${form}.png`), Buffer.from(d, 'base64url'));
@@ -1040,6 +1048,21 @@ const main = async () => {
       if (hasFlag('--off')) kw.enabled = false;
       if (opt('--form') !== undefined) kw.form = opt('--form');
       if (opt('--size') !== undefined) kw.size = Number(opt('--size'));
+      if (opt('--file') !== undefined) {
+        // custom mascot image: copy next to the derived cache (kept apart by
+        // the -src suffix so the page-derived custom.png can't clobber it)
+        const abs = path.resolve(opt('--file'));
+        if (!fs.existsSync(abs) || !isImageFile(abs)) { console.error(`not an image: ${abs}`); process.exit(1); }
+        fs.mkdirSync(MASCOT_CACHE_DIR, { recursive: true });
+        for (const f of fs.readdirSync(MASCOT_CACHE_DIR)) {
+          if (f.startsWith('custom-src.') || f === 'custom.png') { try { fs.unlinkSync(path.join(MASCOT_CACHE_DIR, f)); } catch {} }
+        }
+        const dest = 'custom-src' + path.extname(abs).toLowerCase();
+        fs.copyFileSync(abs, path.join(MASCOT_CACHE_DIR, dest));
+        kw.form = 'custom';
+        kw.customFile = dest;
+        console.log(`Custom mascot: ${dest}`);
+      }
       if (Object.keys(kw).length) await cliCmd({ c: 'mascot.set', ...kw });
       console.log('Mascot:', JSON.stringify(readConfig().mascot));
       return;
