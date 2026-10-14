@@ -560,10 +560,7 @@ async function cmdStart() {
           writeOwnConfig(cfg);
           console.log(`[bridge] skipped unreadable wallpaper #${d.failed + 1}`);
         }
-      } catch (e) {
-        console.log(`[push] dropped ${id}: ${String(e?.message || e).slice(0, 300)}`);
-        drop(id);
-      }
+      } catch { drop(id); }
     }
   }
 
@@ -614,25 +611,11 @@ async function serveFile(c, params, file) {
   const range = /bytes=(\d+)-(\d*)/i.exec(rangeHeader);
   let start = range ? Number(range[1]) : 0;
   if (!Number.isSafeInteger(start) || start >= stat.size) start = 0;
-  // A normal GET (notably <img>) expects a complete 200 response and will not
-  // request another chunk. Only explicit Range requests may be chunk-capped.
-  let end = range && range[2] ? Number(range[2]) : stat.size - 1;
-  end = range
-    ? Math.min(stat.size - 1, Math.max(start, end), start + CHUNK_BYTES - 1)
-    : stat.size - 1;
+  let end = range && range[2] ? Number(range[2]) : Math.min(stat.size - 1, start + CHUNK_BYTES - 1);
+  end = Math.min(stat.size - 1, Math.max(start, end), start + CHUNK_BYTES - 1);
   const fh = await fsp.open(file, 'r');
   let data;
-  try {
-    data = Buffer.allocUnsafe(end - start + 1);
-    let offset = 0;
-    while (offset < data.length) {
-      const { bytesRead } = await fh.read(data, offset, data.length - offset, start + offset);
-      if (bytesRead === 0) throw new Error(`unexpected EOF while reading ${file}`);
-      offset += bytesRead;
-    }
-  } catch {
-    return c.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Failed' }).catch(() => {});
-  } finally { await fh.close(); }
+  try { data = Buffer.alloc(end - start + 1); await fh.read(data, 0, data.length, start); } finally { await fh.close(); }
   const hs = [
     { name: 'Content-Type', value: contentType(file) },
     { name: 'Accept-Ranges', value: 'bytes' },

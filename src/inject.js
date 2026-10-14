@@ -81,11 +81,10 @@
     if (box) return box;
     box = document.createElement('div');
     box.id = BOX_ID;
-    Object.assign(box.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', minWidth: '100vw', minHeight: '100vh', zIndex: '0', pointerEvents: 'none', overflow: 'hidden', background: '#0b0b0d', willChange: 'opacity,filter', transform: 'translateZ(0)' });
+    Object.assign(box.style, { position: 'fixed', inset: '0', zIndex: '-1000', pointerEvents: 'none', overflow: 'hidden', background: '#0b0b0d' });
     for (let i = 0; i < 2; i++) {
       const slot = document.createElement('div');
-      slot.className = 'codex-wallpaper-slot';
-      Object.assign(slot.style, { position: 'absolute', inset: '0', width: '100vw', height: '100vh', opacity: '0', willChange: 'opacity,transform,clip-path' });
+      Object.assign(slot.style, { position: 'absolute', inset: '0', opacity: '0', willChange: 'opacity,transform,clip-path' });
       box.appendChild(slot);
       state.slots[i] = { wrap: slot, el: null, index: -1 };
     }
@@ -114,7 +113,6 @@
     const DT = glass(22, 22, 27, Math.min(1, ca + 0.06), cb) + 'border-radius:14px;';
     const M = 'main[class*="MainContentSurface"]', C = 'main [class*="ComposerLayoutRoot"]';
     const T = 'main [class*="transcriptContent"]';
-    const S = '[data-slate-sidebar-content]';
     // UI font override: sanitize to a bare family list (no CSS breakout), keep
     // code/mono blocks on their own stack
     const fam = String(fx.fontFamily || '').replace(/[^\w ,'"一-鿿-]/g, '').trim();
@@ -122,21 +120,11 @@
       ? `body,button,input,textarea,select,[contenteditable="true"]{font-family:${fam},system-ui,"Microsoft YaHei",sans-serif!important}\n`
       : '';
     return fontRule + `
-#${BOX_ID}{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;min-width:100vw!important;min-height:100vh!important;max-width:none!important;max-height:none!important;z-index:0!important}
-#${BOX_ID}>.codex-wallpaper-slot{position:absolute!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;overflow:hidden!important}
-#${BOX_ID}>.codex-wallpaper-slot>img,#${BOX_ID}>.codex-wallpaper-slot>video{position:absolute!important;inset:0!important;width:100vw!important;height:100vh!important;min-width:100vw!important;min-height:100vh!important;max-width:none!important;max-height:none!important;object-fit:cover!important;display:block!important}
 html,body,#root{background:transparent!important}
-body{position:relative!important;isolation:isolate!important}
-#root{position:relative!important;z-index:1!important}
-[class*="_PageSurface_"],[class*="_WorkspaceContent_"],[class*="_MainContentViewport_"],[class*="_MainContentFrame_"]{background-color:transparent!important;background-image:none!important}
 html:not([data-we-tint]) ${M}{${L}}
 html:not([data-we-tint])[data-theme=dark] ${M}{${D}}
 html[data-we-tint=light] ${M}{${L}}
 html[data-we-tint=dark] ${M}{${D}}
-html:not([data-we-tint]) ${S}{${L}}
-html:not([data-we-tint])[data-theme=dark] ${S}{${D}}
-html[data-we-tint=light] ${S}{${L}}
-html[data-we-tint=dark] ${S}{${D}}
 html:not([data-we-tint]) ${C}{${LC}}
 html:not([data-we-tint])[data-theme=dark] ${C}{${DC}}
 html[data-we-tint=light] ${C}{${LC}}
@@ -175,13 +163,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const fx = state.fx || {};
     for (const s of state.slots) {
       if (!s || !s.el) continue;
-      if (s.kind !== 'live') {
-        Object.assign(s.el.style, {
-          position: 'absolute', inset: '0', width: '100vw', height: '100vh',
-          maxWidth: 'none', maxHeight: 'none', objectFit: 'cover',
-          objectPosition: `${num(fx.panX, 50)}% ${num(fx.panY, 50)}%`,
-        });
-      }
+      if (s.kind !== 'live') s.el.style.objectPosition = `${num(fx.panX, 50)}% ${num(fx.panY, 50)}%`;
       s.el.style.transform = `scale(${num(fx.zoom, 1)}) scaleX(${fx.flipH ? -1 : 1})`;
       if (s.el.tagName === 'VIDEO') {
         s.el.playbackRate = clamp(num(fx.rate, 1), 0.25, 3);
@@ -189,14 +171,6 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
         s.el.muted = num(fx.volume, 0) <= 0;
       }
     }
-  }
-
-  function forceInitialPaint() {
-    const box = ensureBox();
-    const target = String(num(state.fx?.opacity, 0.32));
-    box.style.opacity = '0';
-    void box.offsetWidth;
-    box.style.opacity = target;
   }
 
   /* ================= live layer (WebWallGL scene/web) =================
@@ -425,10 +399,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       const finish = (ok) => { if (!done) { done = true; resolve(ok); } };
       const t = setTimeout(() => finish(false), READY_TIMEOUT_MS);
       const ok = () => { clearTimeout(t); finish(true); };
-      const bad = () => {
-        try { new Image().src = `${HOST}/api/log?m=${encodeURIComponent(`media-error kind=${kind} src=${el.currentSrc || el.src || ''}`)}`; } catch {}
-        clearTimeout(t); finish(false);
-      };
+      const bad = () => { clearTimeout(t); finish(false); };
       if (kind === 'video') {
         if (el.readyState >= 3) return ok();
         el.addEventListener('canplay', ok, { once: true });
@@ -570,7 +541,6 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       const dur = runTransition(state.slots[nextSlot].wrap, oldSlot >= 0 ? state.slots[oldSlot].wrap : null);
       state.active = nextSlot;
       state.currentIndex = index;
-      if (oldSlot < 0) forceInitialPaint();
       state.userThemeOverride = false; // new wallpaper — theme-follow resumes (dsh: 换下一张恢复)
       const old = oldSlot >= 0 ? state.slots[oldSlot] : null;
       setTimeout(() => {

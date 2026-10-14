@@ -57,22 +57,13 @@
 .wep-tab.on{background:rgba(255,255,255,.2);color:#fff;font-weight:600}
 .wep-close{border:0;background:transparent;color:#cfd3e0;cursor:pointer;font-size:15px;padding:2px 6px;border-radius:6px}
 .wep-close:hover{background:rgba(255,255,255,.12)}
-.wep-body{overflow-y:auto;flex:1;padding:12px;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:rgba(180,198,240,.72) rgba(255,255,255,.08)}
-.wep-body::-webkit-scrollbar{width:10px}
-.wep-body::-webkit-scrollbar-track{background:rgba(255,255,255,.08);border-radius:999px}
-.wep-body::-webkit-scrollbar-thumb{min-height:32px;background:rgba(180,198,240,.72);border:2px solid transparent;background-clip:padding-box;border-radius:999px}
-.wep-body::-webkit-scrollbar-thumb:hover{background:rgba(210,222,255,.9);background-clip:padding-box}
+.wep-body{overflow-y:auto;flex:1;padding:12px;scrollbar-width:thin}
+.wep-body::-webkit-scrollbar{width:6px}.wep-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25);border-radius:3px}
 .wep-row{display:flex;align-items:center;gap:8px;margin:8px 0}
 .wep-row label{flex:none;width:86px;opacity:.85;font-size:12.5px}
 .wep-row output{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums;opacity:.8;font-size:12px}
 .wep-sec{margin:14px 0 6px;font-size:12px;font-weight:650;opacity:.65;letter-spacing:.04em}
-.wep-slider{--wep-fill:0%;flex:1;min-width:0;height:18px;cursor:pointer;background:transparent;appearance:none;-webkit-appearance:none;outline:none}
-.wep-slider::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:linear-gradient(to right,#7fa8ff 0,#7fa8ff var(--wep-fill),rgba(255,255,255,.25) var(--wep-fill),rgba(255,255,255,.25) 100%);box-shadow:inset 0 0 0 1px rgba(0,0,0,.16)}
-.wep-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:50%;border:2px solid #dce6ff;background:#7fa8ff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
-.wep-slider::-moz-range-track{height:4px;border-radius:999px;background:rgba(255,255,255,.25)}
-.wep-slider::-moz-range-progress{height:4px;border-radius:999px;background:#7fa8ff}
-.wep-slider::-moz-range-thumb{width:12px;height:12px;border-radius:50%;border:2px solid #dce6ff;background:#7fa8ff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
-.wep-slider:focus-visible{outline:2px solid rgba(127,168,255,.85);outline-offset:2px;border-radius:999px}
+.wep-slider{flex:1;accent-color:#7fa8ff;height:4px;cursor:pointer}
 .wep-toggle{position:relative;width:36px;height:20px;flex:none;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);cursor:pointer;transition:background .15s}
 .wep-toggle.on{background:#5b8cff;border-color:#5b8cff}
 .wep-toggle::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
@@ -121,16 +112,10 @@
     for (const kid of kids.flat()) if (kid != null) el.append(kid);
     return el;
   }
-  const paintSlider = (s) => {
-    const lo = Number(s.min), hi = Number(s.max), value = Number(s.value);
-    const ratio = hi > lo ? Math.max(0, Math.min(1, (value - lo) / (hi - lo))) : 0;
-    s.style.setProperty('--wep-fill', `${ratio * 100}%`);
-  };
   const slider = (label, min, max, step, val, fmt, onIn) => {
     const out = h('output', {}, fmt(val));
-    const s = h('input', { class: 'wep-slider', type: 'range', min, max, step, value: val, 'aria-label': label });
-    paintSlider(s);
-    s.addEventListener('input', () => { paintSlider(s); out.textContent = fmt(Number(s.value)); onIn(Number(s.value)); });
+    const s = h('input', { class: 'wep-slider', type: 'range', min, max, step, value: val });
+    s.addEventListener('input', () => { out.textContent = fmt(Number(s.value)); onIn(Number(s.value)); });
     return h('div', { class: 'wep-row' }, h('label', {}, label), s, out);
   };
   const toggle = (label, on, onCh) => {
