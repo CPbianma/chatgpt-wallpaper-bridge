@@ -630,6 +630,8 @@ async function serveFile(c, params, file) {
       if (bytesRead === 0) throw new Error(`unexpected EOF while reading ${file}`);
       offset += bytesRead;
     }
+  } catch {
+    return c.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Failed' }).catch(() => {});
   } finally { await fh.close(); }
   const hs = [
     { name: 'Content-Type', value: contentType(file) },
