@@ -126,13 +126,11 @@ function runCommand(cfg, cmdObj, ctx) {
 
 /* ---------------- bridge (start) ---------------- */
 
-// Cross-context singleton lock. A sandboxed launcher (security tools can
-// virtualize AppData for task-spawned processes — observed: the sandboxed
-// bridge saw an empty config dir and auto-seeded defaults over the user's
-// real setup) hides the pid file and config from the real file system, so the
-// on-disk guard alone cannot stop a second bridge from attaching and fighting
-// over the page. A loopback TCP port is not virtualized — hold it for the
-// process lifetime.
+// Cross-context singleton lock. Codex-hosted terminals carry the app's MSIX
+// package identity, which used to virtualize AppData away from the real state
+// dir (a second bridge from a Codex session then fought the task-spawned one
+// over the page). State now lives in ~/.chatgpt-wallpaper (see config.mjs),
+// and a loopback TCP port — never virtualized — guards the singleton anyway.
 const LOCK_PORT = 28741;
 function acquireBridgeLock() {
   return new Promise((resolve) => {

@@ -34,11 +34,6 @@ Commands:
                         Also registers the watchdog at login and starts it
                         immediately. If neither fires at boot, check your
                         security tool's startup-item manager (火绒等).
-                        Symptom of a sandboxed launcher: after boot your
-                        settings are "reset" (whale mascot, no avatars) —
-                        the bridge then runs with a virtualized AppData
-                        view; allow powershell.exe / node.exe in the
-                        security tool's sandbox rules.
   watchdog [off]        Start/stop the watchdog: while the app is open it
                         relaunches the bridge whenever it dies (security-
                         tool kills, taskkill, ...), so the wallpaper no
@@ -72,7 +67,9 @@ Commands:
     --font <family>                app UI font ('' = app default)
   help                  Show this text.
 
-Config: %LOCALAPPDATA%\ChatGPT-Wallpaper\config.json (auto-migrated from v1).
+Config: ~/.chatgpt-wallpaper/config.json (NOT %LOCALAPPDATA% — the Codex app
+is MSIX-packaged and Windows would show Codex-hosted terminals a redirected
+copy; auto-migrated from the legacy AppData location on first run).
 A running bridge hot-reloads config edits and pushes them to the app ~2.5s.
 
 Requires: Windows, official ChatGPT or Codex desktop app open, Node.js >= 22.

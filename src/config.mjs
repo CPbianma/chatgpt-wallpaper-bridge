@@ -1,12 +1,34 @@
 // Config persistence for the ChatGPT Wallpaper bridge.
-// Lives in %LOCALAPPDATA%\ChatGPT-Wallpaper\config.json (machine-local, not in the repo).
+// Lives in ~/.chatgpt-wallpaper/config.json (machine-local, not in the repo).
+// NOT under %LOCALAPPDATA% on purpose: the Codex desktop app is MSIX-packaged
+// and Windows transparently redirects AppData\Local\ChatGPT-Wallpaper for every
+// process spawned from a Codex-hosted terminal — so a bridge started inside a
+// Codex session and one started by Task Scheduler used to see TWO DIFFERENT
+// state dirs (the task side saw an empty dir and seeded defaults: whale
+// mascot, no avatars, video-only playlist). USERPROFILE is never redirected,
+// so every launch context now shares one home.
 // v2 schema: named playlists, extended effects, transitions, playback, occlusion,
 // fx layer, parallax, theme-follow, hidden library items. Old v1 configs migrate on read.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-export const APP_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChatGPT-Wallpaper');
+export const APP_DIR = path.join(os.homedir(), '.chatgpt-wallpaper');
+const LEGACY_APP_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChatGPT-Wallpaper');
+
+// One-time move from the legacy AppData location (whichever view of it the
+// current process sees — for an MSIX-redirected process that's the package
+// overlay holding the user's real settings).
+let migrated = false;
+function ensureMigrated() {
+  if (migrated) return;
+  migrated = true;
+  try {
+    if (!fs.existsSync(APP_DIR) && fs.existsSync(LEGACY_APP_DIR)) fs.cpSync(LEGACY_APP_DIR, APP_DIR, { recursive: true });
+  } catch {}
+  fs.mkdirSync(APP_DIR, { recursive: true });
+}
+
 export const CONFIG_FILE = path.join(APP_DIR, 'config.json');
 export const PID_FILE = path.join(APP_DIR, 'bridge.pid');
 export const PRESET_DIR = path.join(APP_DIR, 'presets');
@@ -86,6 +108,7 @@ const deep = (base, over) => {
 };
 
 export function readConfig() {
+  ensureMigrated();
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
   // v1 -> v2 migration: { playlist, intervalSec, order, effects } -> playlists[0]
@@ -112,6 +135,7 @@ export function activeList(cfg) {
 }
 
 export function writeConfig(cfg) {
+  ensureMigrated();
   fs.mkdirSync(APP_DIR, { recursive: true });
   const tmp = CONFIG_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
