@@ -216,11 +216,23 @@
       return;
     }
     if (fab) fab.style.display = 'none';
-    if (j === lastMascotJson && rope) return;
+    if (j === lastMascotJson && rope) {
+      // An <img> that failed while the bridge was down stays broken even after
+      // the URL is healthy again. Re-check it on refresh ticks; the timer guard
+      // keeps this from turning into a tight retry loop.
+      if (ropeImg?.complete && ropeImg.naturalWidth === 0) scheduleRopeArtRetry();
+      return;
+    }
     lastMascotJson = j;
     if (!rope) mountRope();
     positionRope(mc);
-    if (rope._form !== mc.form) { rope._form = mc.form; loadRopeArt(); }
+    if (rope._form !== mc.form) {
+      clearTimeout(rope._artRetry);
+      rope._artRetry = 0;
+      rope._artRetryMs = 1000;
+      rope._form = mc.form;
+      loadRopeArt();
+    }
   }
 
   function positionRope(mc = mascotCfg()) {
@@ -234,25 +246,39 @@
     rope.style.top = ROPE_TOP + 'px';
   }
 
+  // Retry a failed mascot image with capped exponential backoff. A bridge
+  // restart or a temporary 404 must not leave a permanent broken-image glyph.
+  function scheduleRopeArtRetry() {
+    if (!rope || !ropeImg || rope._artRetry) return;
+    const wait = rope._artRetryMs || 1000;
+    rope._artRetryMs = Math.min(wait * 2, 15000);
+    rope._artRetry = setTimeout(() => {
+      rope._artRetry = 0;
+      if (ropeImg?.complete && ropeImg.naturalWidth > 0) return;
+      loadRopeArt(true);
+    }, wait);
+  }
+
   // Source art ships with 20-30% transparent margins (see vendor/mascot/
   // README): crop to the alpha bbox on a canvas, downscale to ~256px tall,
   // cache the result on the bridge, and use the cached file from then on.
-  function loadRopeArt() {
+  function loadRopeArt(retry = false) {
     if (!ropeImg) return;
     const form = rope._form;
-    if (form === 'vector') { ropeImg.src = `${HOST}/mascot/vector`; return; }
-    const derived = `${HOST}/mascot-derived/${form}`;
+    const bust = retry ? `?r=${Date.now()}` : '';
+    if (form === 'vector') { ropeImg.src = `${HOST}/mascot/vector${bust}`; return; }
+    const derived = `${HOST}/mascot-derived/${form}${bust}`;
     const probe = new Image();
     probe.onload = () => { if (ropeImg && rope._form === form) ropeImg.src = derived; };
     probe.onerror = () => {
       if (!ropeImg || rope._form !== form) return;
-      ropeImg.src = `${HOST}/mascot/${form}`;
-      deriveRopeArt(form);
+      ropeImg.src = `${HOST}/mascot/${form}${bust}`;
+      deriveRopeArt(form, bust);
     };
     probe.src = derived;
   }
 
-  function deriveRopeArt(form) {
+  function deriveRopeArt(form, bust = '') {
     const im = new Image();
     im.crossOrigin = 'anonymous'; // bridge sends ACAO:* — keeps the canvas clean
     im.onload = () => {
@@ -281,7 +307,7 @@
         new Image().src = `${HOST}/api/mascot-cache?form=${form}&d=${b64}`; // page -> bridge cache
       } catch {}
     };
-    im.src = `${HOST}/mascot/${form}`;
+    im.src = `${HOST}/mascot/${form}${bust}`;
   }
 
   function mountRope() {
@@ -289,12 +315,21 @@
     const cord = h('div', { class: 'we-rope-cord' });
     const art = h('div', { class: 'we-rope-art' });
     ropeImg = h('img', { draggable: 'false', alt: '' });
+    ropeImg.addEventListener('load', () => {
+      if (!rope) return;
+      clearTimeout(rope._artRetry);
+      rope._artRetry = 0;
+      rope._artRetryMs = 1000;
+    });
+    ropeImg.addEventListener('error', scheduleRopeArtRetry);
     art.append(ropeImg);
     rope.append(cord, art);
     rope._cord = cord;
     rope._art = art;
     rope._cordBase = 24;
     rope._pulled = false;
+    rope._artRetry = 0;
+    rope._artRetryMs = 1000;
     rope._x = 8; rope._form = '';
     document.documentElement.append(rope);
 
