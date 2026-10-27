@@ -49,11 +49,12 @@
 - **六页签控制面板**：
   - **壁纸**：缩略图网格、搜索、类型 / 内容分级筛选、隐藏 / 恢复、点选即换
   - **播放**：暂停 / 上下张、倍速、音量、翻转；**七种过场**（硬切 / 淡化 / 推移 / 擦除 / 光圈 / 缩放 / 百叶窗 + 方向 + 速度）；实时渲染开关与帧率档（15/30/60）
-  - **效果**：透明度 / 亮度 / 对比度 / 饱和度 / 模糊 / 暗化 / 缩放 / 位移；面板、输入框、**对话内容卡片**三层玻璃独立调（壁纸透出来与文字看得清不再打架）
+  - **效果**：`原有外观 / 深色磨砂工作台` 显式切换；透明度 / 亮度 / 对比度 / 饱和度 / 模糊 / 暗化 / 缩放 / 位移；主工作区、输入框、**独立侧栏**分层调玻璃，原有外观仍可调对话内容卡片；可关闭的自动可读性只微调玻璃，不改主题
   - **轮播**：多播放列表（各自间隔与顺序）、CRUD、成员管理
   - **扩展**：点击效果（涟漪 / 星火）· 拖尾（彗尾 / 星尘）· 3D 视差 · 吉祥物设置
   - **系统**：会话头像、界面字体、省电三开关（隐藏 / 失焦 / 电池）、配置预设
-- **主题随壁纸**：玻璃深浅 + **应用自身明暗主题**跟随壁纸（作者 schemecolor 与真实画面主色两票合议，WCAG 亮度阈值）；手动改过主题就让位，换下一张恢复
+- **深色磨砂工作台**：冷炭灰主工作区统一标题、正文与输入区域，transcript 不再叠第二块大背板；侧栏独立磨砂、壁纸低频亮度适应、浅色玻璃、减少动态效果与挂件安全避让。旧配置默认仍为 `legacy`，只有显式启用才套用新基线
+- **主题随壁纸**：玻璃深浅 + **应用自身明暗主题**跟随壁纸（作者 schemecolor 与真实画面主色两票合议，WCAG 亮度阈值）；手动改过主题就让位，换下一张恢复。与工作台的“自动增强可读性”相互独立，后者只调玻璃、不改宿主主题
 - **就绪后切换**：先把下一张预载到可播再过场；窗口隐藏 / 失焦 / 用电池时自动暂停（渲染器与视频一样省电）
 - **生态互通**：`import-we` 直接导入 WE 官方客户端的播放列表；`import` 导入本地图片 / 视频；`autostart` 登录后隐藏自启；**会话头像**与**界面字体**可自定义
 
@@ -100,10 +101,29 @@ node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply
 | `avatar --user <图> --assistant <图>` | 会话头像（`--clear`/`--off`） |
 | `import <文件…>` / `import-we [--apply N]` | 导入本地文件 / WE 播放列表 |
 | `preset ls\|save\|apply\|delete` | 整机配置快照 |
+| `appearance workbench\|legacy\|restore` | 启用工作台 / 原有外观 / 只恢复优化前视觉字段 |
 | `autostart [--off]` | 登录后隐藏自启（任务计划 ×2 + 启动文件夹；含看门狗） |
 | `watchdog [off]` | 看门狗：应用开着时桥接被杀自动拉起 |
 
 </details>
+
+### 外观切换与视觉恢复
+
+```powershell
+node src/bridge.mjs appearance workbench   # 显式启用深色磨砂工作台
+node src/bridge.mjs appearance legacy      # 只切回原有表面风格
+node src/bridge.mjs appearance restore     # 恢复首次启用前的视觉字段
+node src/bridge.mjs fx --sidebar-alpha-dark 0.78 --sidebar-blur 16
+node src/bridge.mjs fx --no-auto-readability
+```
+
+首次启用前会在 `~/.chatgpt-wallpaper/backups/` 建立带时间戳的完整配置备份，并在 `~/.chatgpt-wallpaper/visual-restore.json` 保存视觉专用恢复点。`appearance restore` 只恢复外观、相关动效和挂件大小/位置，不回退播放列表、当前壁纸、切换时间、音量、倍速、live 设置、自定义资源或系统设置；它不同于会套用整机状态的 `preset apply`。面板「效果」页也提供同一条恢复入口。
+
+相关内置测试（零依赖）：
+
+```powershell
+node --test tests/visual-style.test.mjs tests/commands-visual.test.mjs
+```
 
 ## 工作原理
 

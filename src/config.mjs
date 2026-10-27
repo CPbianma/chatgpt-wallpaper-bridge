@@ -32,8 +32,11 @@ function ensureMigrated() {
 export const CONFIG_FILE = path.join(APP_DIR, 'config.json');
 export const PID_FILE = path.join(APP_DIR, 'bridge.pid');
 export const PRESET_DIR = path.join(APP_DIR, 'presets');
+export const BACKUP_DIR = path.join(APP_DIR, 'backups');
+export const VISUAL_RESTORE_FILE = path.join(APP_DIR, 'visual-restore.json');
 
 export const DEFAULT_FX = {
+  appearance: 'legacy', // legacy | workbench; explicit opt-in only
   opacity: 0.5,         // wallpaper layer opacity
   brightness: 0.85,     // wallpaper CSS brightness
   contrast: 1.05,       // wallpaper CSS contrast
@@ -54,8 +57,12 @@ export const DEFAULT_FX = {
   panelAlphaDark: 0.30, // main conversation surface alpha (dark theme)
   panelBlur: 10,        // backdrop blur for the panel
   composerAlpha: 0.55,  // composer surface alpha
-  contentAlpha: 0.62,   // transcript card alpha (readability backing)
-  contentBlur: 18,      // transcript card backdrop blur
+  contentAlpha: 0.62,   // transcript card alpha (legacy readability backing)
+  contentBlur: 18,      // transcript card backdrop blur (legacy)
+  sidebarAlpha: 0.62,   // independent sidebar alpha (light theme)
+  sidebarAlphaDark: 0.68,
+  sidebarBlur: 18,
+  autoReadability: false, // sampled wallpaper luminance adjusts glass only
   autoTint: true,       // theme-follow: glass tint follows wallpaper brightness
   fontFamily: '',       // app UI font override ('' = app default)
 };
@@ -99,7 +106,7 @@ export const DEFAULTS = {
 };
 
 const deep = (base, over) => {
-  const out = { ...base };
+  const out = structuredClone(base || {});
   for (const k of Object.keys(over || {})) {
     if (over[k] && typeof over[k] === 'object' && !Array.isArray(over[k]) && base[k] && typeof base[k] === 'object') out[k] = deep(base[k], over[k]);
     else out[k] = over[k];
@@ -107,10 +114,8 @@ const deep = (base, over) => {
   return out;
 };
 
-export function readConfig() {
-  ensureMigrated();
-  let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
+export function normalizeConfig(input = {}) {
+  let cfg = structuredClone(input || {});
   // v1 -> v2 migration: { playlist, intervalSec, order, effects } -> playlists[0]
   if (!Array.isArray(cfg.playlists)) {
     cfg.playlists = [];
@@ -128,6 +133,13 @@ export function readConfig() {
   if (!merged.playlists.length) merged.activePlaylist = null;
   if (!merged.playlists.some((p) => p.key === merged.activePlaylist)) merged.activePlaylist = merged.playlists[0]?.key ?? null;
   return merged;
+}
+
+export function readConfig() {
+  ensureMigrated();
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch {}
+  return normalizeConfig(cfg);
 }
 
 export function activeList(cfg) {

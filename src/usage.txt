@@ -25,6 +25,12 @@ Commands:
                         rendering (WebWallGL). Off = preview-image fallback.
   playlist              ls | create --name N | use <key> | rename --name N | delete <key>
   preset                ls | save --name N | apply --name N | delete --name N
+  appearance            workbench | legacy | restore
+                        Explicitly enable the dark frosted workbench, return to
+                        the original surface style, or restore only the visual
+                        fields captured before the first workbench enable.
+                        Enable creates a timestamped full config backup plus a
+                        visual-only restore point; playlists/playback stay put.
   probe                 Inject connectivity probes; check the bridge log for
                         fetch/WebGL/iframe capability reports.
   autostart [--off]     Start the bridge hidden at login (Task Scheduler
@@ -63,7 +69,12 @@ Commands:
     --transition-dir <d>           left|right|up|down (slide/wipe/bars)
     --transition-speed <x>         0.4..3 (multiplies --fade-ms base)
     --panel-alpha --panel-alpha-dark --panel-blur --composer-alpha
-    --auto-tint / --no-auto-tint   glass tint follows wallpaper brightness
+    --content-alpha --content-blur       legacy transcript card only
+    --sidebar-alpha --sidebar-alpha-dark --sidebar-blur
+    --auto-tint / --no-auto-tint   glass + host theme follow wallpaper
+    --auto-readability / --no-auto-readability
+                                   workbench: adjust glass only from 32x32
+                                   wallpaper luminance; never changes theme
     --font <family>                app UI font ('' = app default)
   help                  Show this text.
 

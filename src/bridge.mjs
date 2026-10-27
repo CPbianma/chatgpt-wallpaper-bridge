@@ -18,24 +18,26 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { CDP, appPages } from './cdp.mjs';
-import { APP_DIR, CONFIG_FILE, PID_FILE, PRESET_DIR, DEFAULT_FX, readConfig, writeConfig, activeList, numberArg, clamp } from './config.mjs';
+import { APP_DIR, CONFIG_FILE, PID_FILE, PRESET_DIR, VISUAL_RESTORE_FILE, DEFAULT_FX, readConfig, writeConfig, activeList, numberArg, clamp } from './config.mjs';
 import { scanLibrary, resolveItem, contentType, isVideoFile, isImageFile, workshopRoots } from './library.mjs';
 import { applyCommand, nextIndex } from './commands.mjs';
 import { createTokenMap } from './tokens.mjs';
 import { startMediaServer, probeHtml, VENDOR_DIR } from './media-server.mjs';
 import { parseUserPropDefs, entryDirPrefix, filterKnownOverrides } from './we-props.mjs';
 import { extractSceneVideoFromPkgFile, extractSceneVideoFromDir } from './scene-manifest.mjs';
+import { visualRuntimeSource } from './visual-style.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INJECT_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'inject.js'), 'utf8');
 const PANEL_SRC = fs.readFileSync(path.join(SCRIPT_DIR, 'panel.js'), 'utf8');
+const VISUAL_SRC = visualRuntimeSource();
 // Content-build tags ride ahead of the sources so same-API-version edits still
 // force a remount — the page-side reuse guards compare them (a stale mounted
 // panel once survived a behavior fix because PANEL_API wasn't bumped).
 import { createHash } from 'node:crypto';
 const srcHash = (s) => createHash('sha1').update(s).digest('hex').slice(0, 10);
-const INJECT_ALL = `;window.__weInjectBuild=${JSON.stringify(srcHash(INJECT_SRC))};window.__wePanelBuild=${JSON.stringify(srcHash(PANEL_SRC))};\n`
-  + INJECT_SRC + '\n;' + PANEL_SRC;
+const INJECT_ALL = `;window.__weInjectBuild=${JSON.stringify(srcHash(VISUAL_SRC + INJECT_SRC))};window.__wePanelBuild=${JSON.stringify(srcHash(PANEL_SRC))};\n`
+  + VISUAL_SRC + INJECT_SRC + '\n;' + PANEL_SRC;
 const VIRTUAL_HOST = 'https://wallpaper.local';
 const SCENE_LIVE_PREFIX = '/wallpaper-engine/scene-live/';
 const MEDIA_ORIGIN_FILE = path.join(APP_DIR, 'media-origin');
@@ -64,7 +66,7 @@ const cmd = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'start';
 const rest = cmd === argv[0] ? argv.slice(1) : argv;
 const opt = (name) => { const i = rest.indexOf(name); return i >= 0 && i + 1 < rest.length ? rest[i + 1] : undefined; };
 const hasFlag = (name) => rest.includes(name);
-const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--name', '--key', '--id', '--fps', '--font', '--user', '--assistant', '--form', '--size', '--file']);
+const VALUE_OPTS = new Set(['--interval', '--order', '--opacity', '--brightness', '--contrast', '--saturate', '--blur', '--dim', '--pan-x', '--pan-y', '--zoom', '--rate', '--volume', '--fade-ms', '--transition', '--transition-dir', '--transition-speed', '--panel-alpha', '--panel-alpha-dark', '--panel-blur', '--composer-alpha', '--content-alpha', '--content-blur', '--sidebar-alpha', '--sidebar-alpha-dark', '--sidebar-blur', '--name', '--key', '--id', '--fps', '--font', '--user', '--assistant', '--form', '--size', '--file']);
 const positionals = () => {
   const out = [];
   for (let i = 0; i < rest.length; i++) {
@@ -120,6 +122,8 @@ function runCommand(cfg, cmdObj, ctx) {
     if (r.libChanged) cfg.libEpoch = Date.now();
     if (r.propsChanged) cfg.propsEpoch = Date.now();
     writeConfig(cfg);
+    // A restored snapshot is consumed only after the config write succeeds.
+    if (r.clearVisualSnapshot) { try { fs.unlinkSync(r.clearVisualSnapshot); } catch {} }
   }
   return r;
 }
@@ -1004,7 +1008,7 @@ async function cmdStop() {
   const pid = killRecordedBridge();
   if (pid) { console.log(`Stopped bridge (pid ${pid}).`); await new Promise((r) => setTimeout(r, 300)); }
   try { fs.unlinkSync(PID_FILE); } catch {}
-  const n = await pokePages('window.__wallpaper && window.__wallpaper.destroy()');
+  const n = await pokePages('(window.__wallpaperPanel && window.__wallpaperPanel.destroy(), window.__wallpaper && window.__wallpaper.destroy(), delete window.__weVisual)');
   console.log(n ? `Removed wallpaper layer from ${n} page(s).` : 'No app page found (layer was not active or app is closed).');
 }
 
@@ -1093,7 +1097,8 @@ async function cmdFx() {
     '--rate': 'rate', '--volume': 'volume', '--fade-ms': 'fadeMs',
     '--transition': 'transition', '--transition-dir': 'transitionDir', '--transition-speed': 'transitionSpeed',
     '--panel-alpha': 'panelAlpha', '--panel-alpha-dark': 'panelAlphaDark', '--panel-blur': 'panelBlur', '--composer-alpha': 'composerAlpha',
-    '--content-alpha': 'contentAlpha', '--content-blur': 'contentBlur', '--font': 'fontFamily',
+    '--content-alpha': 'contentAlpha', '--content-blur': 'contentBlur',
+    '--sidebar-alpha': 'sidebarAlpha', '--sidebar-alpha-dark': 'sidebarAlphaDark', '--sidebar-blur': 'sidebarBlur', '--font': 'fontFamily',
   };
   const STRING_KEYS = new Set(['transition', 'transitionDir', 'fontFamily']);
   let any = false;
@@ -1105,8 +1110,26 @@ async function cmdFx() {
   if (hasFlag('--no-flip')) { await cliCmd({ c: 'fx', k: 'flipH', v: false }, { quiet: true }); any = true; }
   if (hasFlag('--auto-tint')) { await cliCmd({ c: 'fx', k: 'autoTint', v: true }, { quiet: true }); any = true; }
   if (hasFlag('--no-auto-tint')) { await cliCmd({ c: 'fx', k: 'autoTint', v: false }, { quiet: true }); any = true; }
+  if (hasFlag('--auto-readability')) { await cliCmd({ c: 'fx', k: 'autoReadability', v: true }, { quiet: true }); any = true; }
+  if (hasFlag('--no-auto-readability')) { await cliCmd({ c: 'fx', k: 'autoReadability', v: false }, { quiet: true }); any = true; }
   if (!any) console.log(JSON.stringify(readConfig().fx, null, 2));
   else console.log(JSON.stringify(readConfig().fx));
+}
+
+async function cmdAppearance() {
+  const sub = rest[0];
+  if (!sub) {
+    const cfg = readConfig();
+    console.log(`Appearance: ${cfg.fx.appearance || 'legacy'}; visual restore point: ${fs.existsSync(VISUAL_RESTORE_FILE) ? 'available' : 'none'}`);
+    return;
+  }
+  if (sub === 'restore') { await cliCmd({ c: 'appearance.restore' }); return; }
+  if (sub !== 'legacy' && sub !== 'workbench') {
+    console.error('appearance: workbench | legacy | restore');
+    process.exitCode = 1;
+    return;
+  }
+  await cliCmd({ c: 'appearance.set', mode: sub });
 }
 
 async function cmdStatus() {
@@ -1158,6 +1181,7 @@ const main = async () => {
     }
     case 'playlist': return cmdPlaylist();
     case 'preset': return cmdPreset();
+    case 'appearance': return cmdAppearance();
     case 'fx': return cmdFx();
     case 'live': {
       const kw = {};

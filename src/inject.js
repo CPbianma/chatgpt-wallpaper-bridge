@@ -49,10 +49,24 @@
     switching: false,
     switchingTo: -1,
     occluded: false,
-    tint: null,            // 'light' | 'dark' | null (auto)
+    tint: null,            // wallpaper vote; manual override suppresses its glass attribute
+    readabilityLum: null,  // sampled 32x32 mean relative luminance (page-local)
+    analysisSeq: 0,        // invalidates pending media/live analysis callbacks
+    analysisKey: '',
+    analysisTimers: new Set(),
+    analysisPlayingEl: null,
+    analysisPlayingFn: null,
+    analysisLiveFrame: null,
+    analysisLiveRaf: 0,
     userThemeOverride: false, // user changed the app theme by hand — yield
     themeWrite: null,      // last theme we wrote (distinguish our own writes)
+    themeLastWrite: null,  // restore on destroy only while this value is still current
+    themeObserver: null,
+    themeTimer: 0,
     initialTheme: null,    // app's theme at inject time (restored on destroy)
+    motionQuery: null,
+    motionListener: null,
+    reducedMotion: false,
     battery: null,         // null = unknown
     lastPayload: null,
     liveInfo: null,        // live render config for the current index (null = plain media)
@@ -69,6 +83,8 @@
     avatarTimer: 0,
     // fx canvas
     fxCanvas: null, fxCtx: null, fxParts: [], fxRaf: 0, pointer: { x: -1, y: -1 },
+    fxResize: null,
+    batteryObject: null, batteryListener: null,
     trailPrev: { x: -1, y: -1 }, trailAcc: 0,
     // parallax
     parTarget: { x: 0, y: 0 }, parCurrent: { x: 0, y: 0 }, parRaf: 0,
@@ -104,36 +120,78 @@
     const a = num(fx.panelAlpha, 0.22), ad = num(fx.panelAlphaDark, 0.30);
     const c = num(fx.composerAlpha, 0.55), b = num(fx.panelBlur, 10);
     const ca = num(fx.contentAlpha, 0.62), cb = num(fx.contentBlur, 18);
-    const glass = (r, g, bch, alpha, blur) =>
+    const sa = num(fx.sidebarAlpha, 0.62), sd = num(fx.sidebarAlphaDark, 0.68), sb = num(fx.sidebarBlur, 18);
+    const glass = (r, g, bch, alpha, blur, saturation = 1.35) =>
       `background:rgba(${r},${g},${bch},${alpha})!important;` +
-      (blur > 0 ? `backdrop-filter:blur(${blur}px) saturate(1.35)!important;-webkit-backdrop-filter:blur(${blur}px) saturate(1.35)!important;` : '');
+      (blur > 0 ? `backdrop-filter:blur(${blur}px) saturate(${saturation})!important;-webkit-backdrop-filter:blur(${blur}px) saturate(${saturation})!important;` : '');
     const L = glass(255, 255, 255, a, b), D = glass(20, 20, 24, ad, b);
     const LC = glass(255, 255, 255, c, b), DC = glass(28, 28, 33, c, b);
-    // readability card behind the transcript column (dsh 文字面保底, adapted)
+    // Preserve the user's sidebar readability fix, now independent of the
+    // legacy transcript card controls (old effective values: .62/.68, 18px).
+    const LS = glass(255, 255, 255, sa, sb);
+    const DS = glass(22, 22, 27, sd, sb);
     const LT = glass(255, 255, 255, ca, cb) + 'border-radius:14px;';
     const DT = glass(22, 22, 27, Math.min(1, ca + 0.06), cb) + 'border-radius:14px;';
     const M = 'main[class*="MainContentSurface"]', C = 'main [class*="ComposerLayoutRoot"]';
     const T = 'main [class*="transcriptContent"]';
+    const S = 'aside.app-shell-left-panel';
+    const H = 'main header.draggable';
+    const legacy = (selector, light, dark) => `
+html:not([data-we-appearance=workbench]):not([data-we-tint]) ${selector}{${light}}
+html:not([data-we-appearance=workbench]):not([data-we-tint])[data-theme=dark] ${selector}{${dark}}
+html:not([data-we-appearance=workbench])[data-we-tint=light] ${selector}{${light}}
+html:not([data-we-appearance=workbench])[data-we-tint=dark] ${selector}{${dark}}`;
+    const W = 'html[data-we-appearance=workbench][data-we-main=ready]';
+    const workbench = (selector, light, dark) => `
+${W}:not([data-we-tint]) ${selector}{${light}}
+${W}:not([data-we-tint])[data-theme=dark] ${selector}{${dark}}
+${W}[data-we-tint=light] ${selector}{${light}}
+${W}[data-we-tint=dark] ${selector}{${dark}}`;
+    const adapt = window.__weVisual?.adapt;
+    const fallback = (main, sidebar, composer) => ({ main, sidebar, composer });
+    const effective = (theme, main, sidebar) => adapt
+      ? adapt({ main, sidebar, composer: c }, state.readabilityLum, theme, !!fx.autoReadability)
+      : fallback(main, sidebar, c);
+    const wl = effective('light', a, sa), wd = effective('dark', ad, sd);
+    const noBlur = 'backdrop-filter:none!important;-webkit-backdrop-filter:none!important;';
+    const mainLight = glass(238, 241, 245, wl.main, b, 1.08)
+      + 'border:0!important;border-radius:18px 0 0 18px!important;box-shadow:inset 0 0 0 1px rgba(30,38,48,.08),0 12px 32px rgba(20,25,32,.10)!important;';
+    const mainDark = glass(22, 25, 31, wd.main, b, 1.08)
+      + 'border:0!important;border-radius:18px 0 0 18px!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.07),0 12px 32px rgba(0,0,0,.14)!important;';
+    const sideLight = glass(238, 241, 245, wl.sidebar, sb, 1.08)
+      + 'border:0!important;box-shadow:inset -1px 0 0 rgba(30,38,48,.07)!important;';
+    const sideDark = glass(22, 25, 31, wd.sidebar, sb, 1.08)
+      + 'border:0!important;box-shadow:inset -1px 0 0 rgba(255,255,255,.06)!important;';
+    const composerLight = glass(238, 241, 245, wl.composer, 0) + noBlur
+      + 'border:0!important;border-radius:14px!important;box-shadow:inset 0 0 0 1px rgba(30,38,48,.10),0 6px 18px rgba(20,25,32,.10)!important;';
+    const composerDark = glass(22, 25, 31, wd.composer, 0) + noBlur
+      + 'border:0!important;border-radius:14px!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.10)!important;';
+    // Compensate for the adaptive main alpha so the combined header surface
+    // stays near .72 (rather than adding another full-size blur layer).
+    const headerAlpha = (main) => clamp((0.72 - main) / Math.max(0.01, 1 - main), 0.12, 0.42);
+    const headerLight = glass(238, 241, 245, headerAlpha(wl.main), 0) + noBlur + 'box-shadow:inset 0 -1px 0 rgba(30,38,48,.05)!important;';
+    const headerDark = glass(22, 25, 31, headerAlpha(wd.main), 0) + noBlur + 'box-shadow:inset 0 -1px 0 rgba(255,255,255,.05)!important;';
+    const transcriptClear = `background:transparent!important;${noBlur}border-radius:0!important;box-shadow:none!important;`;
     // UI font override: sanitize to a bare family list (no CSS breakout), keep
-    // code/mono blocks on their own stack
+    // code/mono blocks on their own stack.
     const fam = String(fx.fontFamily || '').replace(/[^\w ,'"一-鿿-]/g, '').trim();
     const fontRule = fam
       ? `body,button,input,textarea,select,[contenteditable="true"]{font-family:${fam},system-ui,"Microsoft YaHei",sans-serif!important}\n`
       : '';
     return fontRule + `
-html,body,#root{background:transparent!important}
-html:not([data-we-tint]) ${M}{${L}}
-html:not([data-we-tint])[data-theme=dark] ${M}{${D}}
-html[data-we-tint=light] ${M}{${L}}
-html[data-we-tint=dark] ${M}{${D}}
-html:not([data-we-tint]) ${C}{${LC}}
-html:not([data-we-tint])[data-theme=dark] ${C}{${DC}}
-html[data-we-tint=light] ${C}{${LC}}
-html[data-we-tint=dark] ${C}{${DC}}
-html:not([data-we-tint]) ${T}{${LT}}
-html:not([data-we-tint])[data-theme=dark] ${T}{${DT}}
-html[data-we-tint=light] ${T}{${LT}}
-html[data-we-tint=dark] ${T}{${DT}}
+html:not([data-we-appearance=workbench]),html:not([data-we-appearance=workbench]) body,html:not([data-we-appearance=workbench]) #root,
+html[data-we-appearance=workbench][data-we-main=ready],html[data-we-appearance=workbench][data-we-main=ready] body,html[data-we-appearance=workbench][data-we-main=ready] #root{background:transparent!important}
+${legacy(S, LS, DS)}
+${legacy(M, L, D)}
+${legacy(C, LC, DC)}
+${legacy(T, LT, DT)}
+${workbench(M, mainLight, mainDark)}
+${workbench(S, sideLight, sideDark)}
+${workbench(C, composerLight, composerDark)}
+${workbench(H, headerLight, headerDark)}
+${workbench(T, transcriptClear, transcriptClear)}
+html[data-we-appearance=workbench] main[class*="MainContentSurface"] :is(a,button,[role=button],[contenteditable=true]):focus-visible,
+html[data-we-appearance=workbench] aside.app-shell-left-panel :is(a,button,[role=button]):focus-visible{outline:2px solid #8EA7C4!important;outline-offset:2px!important}
 main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!important;background-image:none!important}
 `.trim();
   }
@@ -150,9 +208,24 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     return st;
   }
 
+  function syncAppearance() {
+    const html = document.documentElement;
+    const workbench = state.fx?.appearance === 'workbench';
+    if (workbench) {
+      if (html.getAttribute('data-we-appearance') !== 'workbench') html.setAttribute('data-we-appearance', 'workbench');
+    } else if (html.hasAttribute('data-we-appearance')) html.removeAttribute('data-we-appearance');
+    // Never expose an unbacked transparent root when the host surface is not
+    // mounted (navigation, new window, or a changed host selector).
+    const ready = !!(workbench && document.querySelector('main[class*="MainContentSurface"]'));
+    if (ready) {
+      if (html.getAttribute('data-we-main') !== 'ready') html.setAttribute('data-we-main', 'ready');
+    } else if (html.hasAttribute('data-we-main')) html.removeAttribute('data-we-main');
+  }
+
   function applyFx() {
     const fx = state.fx || {};
     const box = ensureBox();
+    syncAppearance();
     box.style.opacity = String(num(fx.opacity, 0.32));
     box.style.filter = `brightness(${num(fx.brightness, 0.68)}) contrast(${num(fx.contrast, 1)}) saturate(${num(fx.saturate, 1.15)}) blur(${num(fx.blur, 0)}px)`;
     if (state.dim) state.dim.style.opacity = String(num(fx.dim, 0));
@@ -282,20 +355,57 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     try { w.__wp.updateWebProps(vals); } catch {}
   }
 
-  // Frame sampling for the theme vote: draw the renderer's WebGL canvas inside
-  // the iframe's own rAF (the drawing buffer is still valid there, no
-  // preserveDrawingBuffer needed). Same-origin makes this legal at all.
-  function sampleLiveTint(frame, cb) {
+  function analysisLater(fn, ms) {
+    const id = setTimeout(() => { state.analysisTimers.delete(id); fn(); }, ms);
+    state.analysisTimers.add(id);
+    return id;
+  }
+
+  function cleanupAnalysis() {
+    for (const id of state.analysisTimers) clearTimeout(id);
+    state.analysisTimers.clear();
+    if (state.analysisPlayingEl && state.analysisPlayingFn) {
+      try { state.analysisPlayingEl.removeEventListener('playing', state.analysisPlayingFn); } catch {}
+    }
+    state.analysisPlayingEl = state.analysisPlayingFn = null;
+    if (state.analysisLiveFrame && state.analysisLiveRaf) {
+      try { state.analysisLiveFrame.contentWindow.cancelAnimationFrame(state.analysisLiveRaf); } catch {}
+    }
+    state.analysisLiveFrame = null;
+    state.analysisLiveRaf = 0;
+  }
+
+  function cancelAnalysis() {
+    cleanupAnalysis();
+    state.analysisSeq++;
+  }
+
+  // One 32x32 read serves both theme-follow and glass readability. Sampling is
+  // tied to wallpaper activation, never to the render/scroll animation frames.
+  function sampleLiveAnalysis(frame, cb) {
     let done = false;
-    const finish = (rgb) => { if (!done) { done = true; cb(rgb); } };
-    setTimeout(() => finish(null), 3500);
+    const finish = (analysis) => {
+      if (done) return;
+      done = true;
+      if (state.analysisLiveFrame === frame) {
+        if (state.analysisLiveRaf) {
+          try { frame.contentWindow.cancelAnimationFrame(state.analysisLiveRaf); } catch {}
+        }
+        state.analysisLiveFrame = null;
+        state.analysisLiveRaf = 0;
+      }
+      cb(analysis);
+    };
+    analysisLater(() => finish(null), 3500);
     try {
       const w = frame.contentWindow;
-      w.requestAnimationFrame(() => {
+      state.analysisLiveFrame = frame;
+      state.analysisLiveRaf = w.requestAnimationFrame(() => {
+        state.analysisLiveRaf = 0;
         try {
           const cv = w.document.querySelector('canvas');
           if (!cv || !cv.width || !cv.height) return finish(null);
-          finish(dominantColor((cx, S) => { cx.drawImage(cv, 0, 0, S, S); }));
+          finish(analyzeWallpaper((cx, S) => { cx.drawImage(cv, 0, 0, S, S); }));
         } catch { finish(null); }
       });
     } catch { finish(null); }
@@ -358,7 +468,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       slot.wrap.appendChild(still);
       slot.still = still;
       f.style.opacity = '0';
-      f.style.transition = 'opacity 700ms ease';
+      f.style.transition = state.reducedMotion ? 'opacity 0ms' : 'opacity 700ms ease';
       slot.wrap.appendChild(f);
       slot.el = f; slot.index = index; slot.kind = 'live';
       slot.liveCtl = { cfg: liveCfgFor(live), budgetMs: num(live.budgetMs, 0), configured: false, appliedPlaying: null, appliedVolume: null, lastFrameAt: Date.now(), rescued: false };
@@ -432,9 +542,10 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   }
 
   function runTransition(nextSlotWrap, oldSlotWrap) {
-    const type = state.fx?.transition || 'fade';
+    const requested = state.fx?.transition || 'fade';
+    const type = state.reducedMotion && requested !== 'fade' ? 'cut' : requested;
     const dir = state.fx?.transitionDir || 'left';
-    const dur = TRANSITION_DUR();
+    const dur = state.reducedMotion ? Math.min(120, TRANSITION_DUR()) : TRANSITION_DUR();
     const axis = dir === 'left' || dir === 'right' ? 'X' : 'Y';
     const sign = dir === 'left' || dir === 'up' ? 1 : -1; // next enters from this side
     const clipIn = { left: 'inset(0 100% 0 0)', right: 'inset(0 0 0 100%)', up: 'inset(100% 0 0 0)', down: 'inset(0 0 100% 0)' };
@@ -503,6 +614,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     // bail out instead of being silently swallowed (dsh: 切换意图永远最新优先)
     state.switchSeq = (state.switchSeq || 0) + 1;
     const seq = state.switchSeq;
+    cancelAnalysis();
+    state.readabilityLum = null;
+    ensureStyle();
     state.switchingTo = index;
     const stale = () => seq !== state.switchSeq || state.destroyed;
     // degradation chain (dsh): live renderer -> author-embedded MP4 -> preview
@@ -534,7 +648,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
         const st = state.slots[nextSlot];
         if (st.still) {
           st.el.style.opacity = '1'; // renderer fades in over its own cached frame
-          setTimeout(() => { try { st.still?.remove(); } catch {} st.still = null; }, 900);
+          setTimeout(() => { try { st.still?.remove(); } catch {} st.still = null; }, state.reducedMotion ? 120 : 900);
         }
         // backfill the frame cache once the scene has settled (for instant
         // display the next time rotation lands on this wallpaper)
@@ -557,7 +671,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
           if (old.el && old.el.tagName === 'VIDEO') { try { old.el.pause(); } catch {} }
         }
       }, dur + 120);
-      updateTint(item);
+      analyzeActiveWallpaper(item);
     } finally {
       if (seq === state.switchSeq) { state.switching = false; state.switchingTo = -1; }
     }
@@ -571,12 +685,16 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   };
 
   function setTint(t) {
-    if (state.tint === t) return;
+    // Keep the wallpaper vote for the next activation, but while a manual
+    // override is active neither the host nor the glass may be recolored by a
+    // later sample from the same wallpaper. Also re-sync when t is unchanged:
+    // the override may just have been released with the same vote as before.
     state.tint = t;
     const html = document.documentElement;
-    if (!t) html.removeAttribute('data-we-tint');
-    else html.setAttribute('data-we-tint', t);
-    applyTheme(t);
+    const glassTint = state.userThemeOverride ? null : t;
+    if (!glassTint) html.removeAttribute('data-we-tint');
+    else if (html.getAttribute('data-we-tint') !== glassTint) html.setAttribute('data-we-tint', glassTint);
+    if (glassTint) applyTheme(glassTint);
   }
 
   // theme-follow: flip the app's own data-theme so text colors stay readable.
@@ -588,6 +706,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (state.userThemeOverride) return;
     if (html.getAttribute('data-theme') === t) return;
     state.themeWrite = t;
+    state.themeLastWrite = t;
     html.setAttribute('data-theme', t);
   }
 
@@ -599,9 +718,11 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     // change within 10s counts as the user fighting us — then yield until the
     // next wallpaper (dsh's 让位 rule, adapted).
     let external = [];
-    new MutationObserver(() => {
+    state.themeObserver?.disconnect();
+    state.themeObserver = new MutationObserver(() => {
       const v = document.documentElement.getAttribute('data-theme');
       if (state.themeWrite && v === state.themeWrite) { state.themeWrite = null; return; } // our own write
+      state.themeLastWrite = null; // an external/manual choice now owns the theme
       if (!v || state.userThemeOverride) return;
       const now = Date.now();
       external = external.filter((t) => now - t < 10000);
@@ -609,17 +730,20 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       if (external.length >= 2) {
         state.userThemeOverride = true;
         external = [];
-        document.documentElement.removeAttribute('data-we-tint');
+        setTint(state.tint); // suppress the glass override as well as host writes
         return;
       }
-      setTimeout(() => {
+      clearTimeout(state.themeTimer);
+      state.themeTimer = setTimeout(() => {
         if (!state.destroyed && !state.userThemeOverride && state.tint && state.fx?.autoTint) applyTheme(state.tint);
       }, 1500);
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    });
+    state.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
-  // 4-bit/channel mode bucket over a 32x32 downscale (draw callback fills it).
-  function dominantColor(draw) {
+  // Dominant quantized RGB for the existing theme vote + true mean per-pixel
+  // relative luminance for readability. These are deliberately different stats.
+  function analyzeWallpaper(draw) {
     try {
       const S = 32;
       const cv = document.createElement('canvas');
@@ -628,51 +752,97 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       draw(cx, S);
       const d = cx.getImageData(0, 0, S, S).data;
       const buckets = new Map();
+      let luminance = 0, weight = 0, nonBlack = 0, pixels = 0;
       for (let i = 0; i < d.length; i += 4) {
+        const alpha = d[i + 3] / 255;
+        if (alpha <= 0.02) continue;
         const key = ((d[i] >> 4) << 8) | ((d[i + 1] >> 4) << 4) | (d[i + 2] >> 4);
         buckets.set(key, (buckets.get(key) || 0) + 1);
+        luminance += relLum(d[i], d[i + 1], d[i + 2]) * alpha;
+        weight += alpha;
+        pixels++;
+        if (Math.max(d[i], d[i + 1], d[i + 2]) > 12) nonBlack++;
       }
       let best = null, bestN = 0;
       for (const [k, n] of buckets) if (n > bestN) { bestN = n; best = k; }
-      if (best == null) return null;
-      return [(best >> 8 & 15) * 17, (best >> 4 & 15) * 17, (best & 15) * 17];
-    } catch { return null; }
+      if (best == null || !weight) return null;
+      return {
+        rgb: [(best >> 8 & 15) * 17, (best >> 4 & 15) * 17, (best & 15) * 17],
+        luminance: luminance / weight,
+        black: pixels > 0 && nonBlack / pixels < 0.02,
+      };
+    } catch { return null; } // unready/tainted media -> configured baseline
   }
 
-  function sampleMediaTint(el) {
+  function sampleMediaAnalysis(el) {
     const w = el.tagName === 'VIDEO' ? el.videoWidth : el.naturalWidth;
     const h = el.tagName === 'VIDEO' ? el.videoHeight : el.naturalHeight;
     if (!w || !h) return null;
-    return dominantColor((cx, S) => { cx.drawImage(el, 0, 0, S, S); }); // tainted canvas -> null, keep current tint
+    return analyzeWallpaper((cx, S) => { cx.drawImage(el, 0, 0, S, S); });
   }
 
   function tintOf(rgb) { return rgb && relLum(rgb[0], rgb[1], rgb[2]) > 0.40 ? 'light' : rgb ? 'dark' : null; }
 
-  // schemeColor (author) and the real frame each get a vote; light only wins
-  // when both agree (dsh's rule — a light schemeColor on a dark wallpaper is
-  // treated as "author didn't fill it properly").
-  function updateTint(item) {
-    if (!state.fx?.autoTint) { setTint(null); return; }
-    const libItem = item?.id != null ? state.lib.find((x) => x.id === item.id) : null;
-    const schemeTint = tintOf(libItem?.schemeColor);
+  // Coordinate one low-frequency analysis for theme-follow and workbench glass.
+  // The token includes same-index rebuilds and A -> B -> A switches; the active
+  // element check prevents an old slot from completing into a new wallpaper.
+  function analyzeActiveWallpaper(item) {
+    cancelAnalysis();
+    const workbench = state.fx?.appearance === 'workbench';
+    const readability = !!(workbench && state.fx?.autoReadability);
+    state.readabilityLum = null;
+    if (!state.fx?.autoTint) setTint(null);
+    ensureStyle();
+    if (!state.fx?.autoTint && !readability) return;
     const s = state.slots[state.active];
     const el = s?.el;
-    const forIndex = state.currentIndex;
-    const decide = (rgb) => {
-      if (state.destroyed || state.currentIndex !== forIndex) return; // stale vote from the previous wallpaper
-      const frameTint = tintOf(rgb);
+    if (!el) return;
+    const libItem = item?.id != null ? state.lib.find((x) => x.id === item.id) : null;
+    const schemeTint = tintOf(libItem?.schemeColor);
+    const key = `${state.currentIndex}:${item?.id || item?.title || ''}:${state.active}`;
+    state.analysisKey = key;
+    const capture = { token: state.analysisSeq, key, appearance: state.fx?.appearance || 'legacy', readability };
+    const valid = () => {
+      if (state.destroyed || state.slots[state.active]?.el !== el) return false;
+      const current = {
+        token: state.analysisSeq,
+        key: state.analysisKey,
+        appearance: state.fx?.appearance || 'legacy',
+        readability: !!(state.fx?.appearance === 'workbench' && state.fx?.autoReadability),
+      };
+      return window.__weVisual
+        ? window.__weVisual.isCurrent(capture, current)
+        : capture.token === current.token && capture.key === current.key
+          && capture.appearance === current.appearance && capture.readability === current.readability;
+    };
+    const complete = (analysis) => {
+      if (!valid()) return;
+      cleanupAnalysis();
+      state.readabilityLum = analysis && Number.isFinite(analysis.luminance) ? analysis.luminance : null;
+      ensureStyle(); // no config write: sliders remain the authoritative baseline
+      if (!state.fx?.autoTint) { setTint(null); return; }
+      const frameTint = tintOf(analysis?.rgb);
       if (schemeTint && frameTint && schemeTint !== frameTint) return setTint('dark');
       setTint(frameTint || schemeTint);
     };
-    if (!el) return;
-    if (s.kind === 'live') { sampleLiveTint(el, decide); return; }
-    if (el.tagName === 'VIDEO' && (el.readyState < 2 || el.currentTime < 0.25)) {
-      // first frames are often black — sample once playback actually shows content
-      el.addEventListener('playing', () => setTimeout(() => decide(sampleMediaTint(el)), 600), { once: true });
-      setTimeout(() => decide(sampleMediaTint(el)), 3500); // fallback if 'playing' never fires (occluded window)
-    } else {
-      decide(sampleMediaTint(el));
+    if (s.kind === 'live') {
+      sampleLiveAnalysis(el, (analysis) => complete(analysis && !analysis.black ? analysis : null));
+      return;
     }
+    if (el.tagName !== 'VIDEO') { complete(sampleMediaAnalysis(el)); return; }
+    const attempt = (final) => {
+      if (!valid()) return;
+      const analysis = sampleMediaAnalysis(el);
+      // Do not interpret an unready/black startup frame as a dark wallpaper.
+      if (!final && (!analysis || analysis.black)) return;
+      complete(analysis && !analysis.black ? analysis : null);
+    };
+    state.analysisPlayingEl = el;
+    state.analysisPlayingFn = () => analysisLater(() => attempt(false), 600);
+    if (el.readyState < 2 || el.currentTime < 0.25)
+      el.addEventListener('playing', state.analysisPlayingFn, { once: true });
+    else analysisLater(() => attempt(false), 600);
+    analysisLater(() => attempt(true), 3500); // occluded/failed playback fallback
   }
 
   /* ================= occlusion & playback ================= */
@@ -703,9 +873,11 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function initBattery() {
     try {
       navigator.getBattery?.().then((b) => {
-        if (!b) return;
+        if (!b || state.destroyed) return;
+        state.batteryObject = b;
         state.battery = !b.charging;
-        b.addEventListener('chargingchange', () => { state.battery = !b.charging; syncPlayback(); });
+        state.batteryListener = () => { state.battery = !b.charging; syncPlayback(); };
+        b.addEventListener('chargingchange', state.batteryListener);
       });
     } catch {}
   }
@@ -723,7 +895,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     state.fxCtx = cv.getContext('2d');
     const fit = () => { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; state.fxCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); };
     fit();
-    addEventListener('resize', fit);
+    if (state.fxResize) removeEventListener('resize', state.fxResize);
+    state.fxResize = fit;
+    addEventListener('resize', state.fxResize);
     return cv;
   }
 
@@ -827,7 +1001,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     spawnClick(e.clientX, e.clientY);
   }
   function onPointerMove(e) {
-    if (state.parallaxCfg?.enabled) {
+    if (state.parallaxCfg?.enabled && !state.reducedMotion) {
       const pct = num(state.parallaxCfg.wallpaperPct, 1);
       state.parMouse = { x: e.clientX - innerWidth / 2, y: e.clientY - innerHeight / 2 };
       state.parTarget = { x: 2 * pct / 100 * state.parMouse.x, y: 2 * pct / 100 * state.parMouse.y };
@@ -854,7 +1028,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   function applyUiParallax() {
     const pc = state.parallaxCfg || {};
-    const uiPct = pc.enabled ? num(pc.uiPct, 0) : 0;
+    const uiPct = pc.enabled && !state.reducedMotion ? num(pc.uiPct, 0) : 0;
     const tx = uiPct ? `${(state.uiCurrent.x).toFixed(2)}px ${(state.uiCurrent.y).toFixed(2)}px` : '';
     if (!Array.isArray(state.uiTargets)) state.uiTargets = [];
     if (uiPct && !state.uiTargets.length) refreshUiTargets();
@@ -868,7 +1042,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function parFrame(t) {
     state.parRaf = 0;
     if (state.destroyed) return;
-    if (!state.parallaxCfg?.enabled) {
+    if (!state.parallaxCfg?.enabled || state.reducedMotion) {
       if (state.box && state.box.style.translate) { state.box.style.translate = ''; state.box.style.scale = ''; }
       if (state.uiTargets?.length) { for (const el of state.uiTargets) { try { el.style.translate = ''; } catch {} } state.uiCurrent = { x: 0, y: 0 }; }
       return;
@@ -893,6 +1067,23 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     pumpParallax();
   }
 
+  function initMotionPreference() {
+    if (!window.matchMedia) return;
+    state.motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    state.motionListener = () => {
+      state.reducedMotion = !!state.motionQuery?.matches;
+      if (!state.reducedMotion) return;
+      if (state.parRaf) { cancelAnimationFrame(state.parRaf); state.parRaf = 0; }
+      state.parTarget = state.parCurrent = { x: 0, y: 0 };
+      state.uiCurrent = { x: 0, y: 0 };
+      if (state.box) { state.box.style.translate = ''; state.box.style.scale = ''; }
+      for (const el of state.uiTargets || []) { try { el.style.translate = ''; } catch {} }
+    };
+    try { state.motionQuery.addEventListener('change', state.motionListener); }
+    catch { state.motionQuery.addListener(state.motionListener); }
+    state.motionListener();
+  }
+
   /* ================= bridge-driven state ================= */
 
   async function applyState(s) {
@@ -901,6 +1092,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (Array.isArray(s.lib)) state.lib = s.lib;
     if (Array.isArray(s.playlists)) state.playlists = s.playlists;
     const fxChanged = JSON.stringify(s.fx || {}) !== JSON.stringify(state.fx || {});
+    const analysisChanged = (s.fx?.autoTint ?? true) !== (state.fx?.autoTint ?? true)
+      || (s.fx?.autoReadability ?? false) !== (state.fx?.autoReadability ?? false)
+      || (s.fx?.appearance || 'legacy') !== (state.fx?.appearance || 'legacy');
     const occlChanged = JSON.stringify(s.occlusion || {}) !== JSON.stringify(state.occlusion || {});
     const layerChanged = JSON.stringify(s.fxLayer || {}) !== JSON.stringify(state.fxLayer || {});
     const parChanged = JSON.stringify(s.parallax || {}) !== JSON.stringify(state.parallaxCfg || {});
@@ -949,7 +1143,11 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (itemsKey !== state.itemsKey) { state.itemsKey = itemsKey; state.currentIndex = -1; }
     if (s.items.length) {
       const want = num(s.index, 0) % s.items.length;
+      const reuseActive = want === state.currentIndex && state.active >= 0;
       await show(want);
+      // show() intentionally returns early for the same wallpaper. Mode/theme
+      // analysis switches still need one fresh sample without rebuilding media.
+      if (analysisChanged && reuseActive) analyzeActiveWallpaper(state.items[want]);
     }
     if (occlChanged || s.paused !== undefined) syncPlayback();
     return diag();
@@ -959,7 +1157,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     const s = state.active >= 0 ? state.slots[state.active] : null;
     const v = s && s.el && s.el.tagName === 'VIDEO' ? s.el : null;
     const live = s && s.kind === 'live' ? { configured: !!(s.liveCtl && s.liveCtl.configured), stalledSec: s.liveCtl ? Math.round((Date.now() - s.liveCtl.lastFrameAt) / 1000) : 0 } : null;
-    return { failed: state.diagFailed, index: state.currentIndex, ready: state.active >= 0, playing: v ? !v.paused : null, occluded: state.occluded, tint: state.tint, live };
+    return { failed: state.diagFailed, index: state.currentIndex, ready: state.active >= 0, playing: v ? !v.paused : null, occluded: state.occluded, tint: state.tint, live, appearance: state.fx?.appearance || 'legacy', readabilityLum: state.readabilityLum, analysisPending: state.analysisTimers.size > 0 || !!state.analysisLiveFrame, reducedMotion: state.reducedMotion };
   }
 
   /* ================= command channel (page -> bridge) ================= */
@@ -1063,6 +1261,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   function heal() {
     if (state.destroyed || !document.documentElement) return;
+    syncAppearance();
     if (!document.getElementById(BOX_ID)) {
       state.box = null; state.dim = null; state.active = -1; state.slots = [];
       const idx = state.currentIndex; state.currentIndex = -1;
@@ -1100,7 +1299,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   function start() {
     const boot = () => {
       if (state.destroyed) return;
-      ensureBox(); applyFx(); ensureFxCanvas();
+      ensureBox(); initMotionPreference(); applyFx();
+      if (fxEnabled()) ensureFxCanvas();
       initThemeWatch();
       state.timers.push(setInterval(heal, HEAL_MS));
       state.timers.push(setInterval(syncPlayback, OCCLUSION_RECHECK_MS));
@@ -1126,12 +1326,26 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     cmd: cmdSend,
     destroy() {
       state.destroyed = true;
+      cancelAnalysis();
       for (const t of state.timers) clearInterval(t);
       document.removeEventListener('visibilitychange', syncPlayback);
       removeEventListener('blur', syncPlayback);
       removeEventListener('focus', syncPlayback);
       document.removeEventListener('pointerdown', onPointerDown, { capture: true });
       document.removeEventListener('pointermove', onPointerMove, { capture: true });
+      state.themeObserver?.disconnect();
+      state.themeObserver = null;
+      clearTimeout(state.themeTimer);
+      if (state.motionQuery && state.motionListener) {
+        try { state.motionQuery.removeEventListener('change', state.motionListener); }
+        catch { state.motionQuery.removeListener(state.motionListener); }
+      }
+      if (state.fxResize) removeEventListener('resize', state.fxResize);
+      if (state.batteryObject && state.batteryListener)
+        state.batteryObject.removeEventListener('chargingchange', state.batteryListener);
+      if (state.fxRaf) cancelAnimationFrame(state.fxRaf);
+      if (state.parRaf) cancelAnimationFrame(state.parRaf);
+      state.fxRaf = state.parRaf = 0;
       document.getElementById(BOX_ID)?.remove();
       document.getElementById(STYLE_ID)?.remove();
       document.getElementById(FXC_ID)?.remove();
@@ -1140,8 +1354,14 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       clearAvatars();
       if (state.uiTargets?.length) for (const el of state.uiTargets) { try { el.style.translate = ''; } catch {} }
       document.documentElement.removeAttribute('data-we-tint');
-      // put the app's theme back the way we found it (dsh: 壁纸退场放回原偏好)
-      if (state.initialTheme) document.documentElement.setAttribute('data-theme', state.initialTheme);
+      document.documentElement.removeAttribute('data-we-appearance');
+      document.documentElement.removeAttribute('data-we-main');
+      // Restore only while the current theme is still ours; otherwise preserve
+      // the user's later manual choice. No theme writes in workbench = no reset.
+      if (state.themeLastWrite && document.documentElement.getAttribute('data-theme') === state.themeLastWrite) {
+        if (state.initialTheme) document.documentElement.setAttribute('data-theme', state.initialTheme);
+        else document.documentElement.removeAttribute('data-theme');
+      }
       delete window.__wallpaper;
     },
   };

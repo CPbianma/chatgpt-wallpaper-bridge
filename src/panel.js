@@ -46,8 +46,8 @@
 .we-rope-art img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
 .we-panel{position:fixed;right:14px;bottom:148px;width:400px;max-width:calc(100vw - 28px);height:min(620px,calc(100vh - 180px));
   z-index:999991;display:flex;flex-direction:column;overflow:hidden;border-radius:16px;
-  background:rgba(30,32,44,.62);backdrop-filter:blur(28px) saturate(1.5);-webkit-backdrop-filter:blur(28px) saturate(1.5);
-  border:1px solid rgba(255,255,255,.22);box-shadow:0 18px 60px rgba(0,0,0,.45);color:#f2f3f7;
+  background:rgba(22,25,31,.88);backdrop-filter:blur(24px) saturate(1.08);-webkit-backdrop-filter:blur(24px) saturate(1.08);
+  border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 48px rgba(7,11,16,.28);color:#ECEFF3;
   font:13px/1.5 ui-sans-serif,system-ui,"Segoe UI","Microsoft YaHei",sans-serif}
 .we-panel *{box-sizing:border-box;margin:0;padding:0}
 .wep-head{display:flex;align-items:center;gap:4px;padding:10px 10px;border-bottom:1px solid rgba(255,255,255,.12);flex:none}
@@ -63,15 +63,15 @@
 .wep-row label{flex:none;width:86px;opacity:.85;font-size:12.5px}
 .wep-row output{flex:none;width:44px;text-align:right;font-variant-numeric:tabular-nums;opacity:.8;font-size:12px}
 .wep-sec{margin:14px 0 6px;font-size:12px;font-weight:650;opacity:.65;letter-spacing:.04em}
-.wep-slider{flex:1;accent-color:#7fa8ff;height:4px;cursor:pointer}
+.wep-slider{flex:1;accent-color:#8EA7C4;height:4px;cursor:pointer}
 .wep-toggle{position:relative;width:36px;height:20px;flex:none;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);cursor:pointer;transition:background .15s}
-.wep-toggle.on{background:#5b8cff;border-color:#5b8cff}
+.wep-toggle.on{background:#8EA7C4;border-color:#8EA7C4}
 .wep-toggle::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s}
 .wep-toggle.on::after{left:18px}
 .wep-btn{border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.12);color:#fff;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:12.5px}
 .wep-btn:hover{background:rgba(255,255,255,.22)}
-.wep-btn.primary{background:#5b8cff;border-color:#5b8cff}
-.wep-btn.primary:hover{background:#6f9bff}
+.wep-btn.primary{background:#8EA7C4;border-color:#8EA7C4}
+.wep-btn.primary:hover{background:#9AAFC7}
 .wep-btn.danger:hover{background:rgba(255,90,90,.35)}
 .wep-select,.wep-input{flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:8px;padding:5px 8px;font-size:12.5px;outline:none}
 .wep-select option{background:#262836;color:#fff}
@@ -80,7 +80,7 @@
 .wep-card img{width:100%;height:100%;object-fit:cover;display:block;loading:lazy}
 .wep-card .t{position:absolute;left:0;right:0;bottom:0;padding:10px 6px 4px;font-size:10.5px;background:linear-gradient(transparent,rgba(0,0,0,.75));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wep-card .b{position:absolute;top:4px;left:4px;font-size:9.5px;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.55)}
-.wep-card.cur{border-color:#5b8cff}
+.wep-card.cur{border-color:#8EA7C4}
 .wep-card .acts{position:absolute;top:4px;right:4px;display:none;gap:4px}
 .wep-card:hover .acts{display:flex}
 .wep-mini{border:0;border-radius:5px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:2px 7px;cursor:pointer}
@@ -94,9 +94,23 @@
 .wep-pitem{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.07);font-size:12px;cursor:pointer;transition:background .12s}
 .wep-pitem:hover{background:rgba(255,255,255,.16)}
 .wep-pitem .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.wep-pitem.cur{outline:1.5px solid #5b8cff}
+.wep-pitem.cur{outline:1.5px solid #8EA7C4}
 .wep-note{font-size:11.5px;opacity:.6;margin-top:8px}
 .wep-color{width:48px;height:26px;border:1px solid rgba(255,255,255,.25);border-radius:6px;background:rgba(255,255,255,.08);padding:2px;cursor:pointer}
+.wep-note{color:#ADB4BF;white-space:pre-line;opacity:.76}
+.wep-slider{appearance:none;-webkit-appearance:none;background:transparent;height:18px}
+.wep-slider::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:rgba(255,255,255,.14)}
+.wep-slider::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border:0;border-radius:50%;background:#8EA7C4;box-shadow:0 0 0 1px rgba(10,14,20,.28)}
+.wep-slider::-moz-range-track{height:4px;border-radius:2px;background:rgba(255,255,255,.14)}
+.wep-slider::-moz-range-progress{height:4px;border-radius:2px;background:rgba(142,167,196,.55)}
+.wep-slider::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:#8EA7C4}
+.we-fab,.wep-btn,.wep-tab,.wep-close,.wep-select,.wep-input,.wep-mini{transition:background-color .16s ease,border-color .16s ease,color .16s ease,transform .16s ease}
+.wep-btn:active,.wep-tab:active,.wep-mini:active{transform:scale(.98)}
+.we-fab:focus-visible,.we-rope:focus-visible,.wep-btn:focus-visible,.wep-tab:focus-visible,.wep-close:focus-visible,.wep-toggle:focus-visible,.wep-select:focus-visible,.wep-input:focus-visible,.wep-mini:focus-visible,.wep-slider:focus-visible{outline:2px solid #8EA7C4;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .we-fab,.we-rope,.we-rope-cord,.we-rope-art,.wep-btn,.wep-tab,.wep-close,.wep-select,.wep-input,.wep-mini,.wep-toggle,.wep-toggle::after{transition-duration:0ms!important}
+  .we-fab:hover,.we-rope:hover .we-rope-art{transform:none}
+}
 `;
 
   /* ---------- helpers ---------- */
@@ -119,8 +133,10 @@
     return h('div', { class: 'wep-row' }, h('label', {}, label), s, out);
   };
   const toggle = (label, on, onCh) => {
-    const t = h('div', { class: 'wep-toggle' + (on ? ' on' : ''), role: 'switch' });
-    t.addEventListener('click', () => { const v = !t.classList.contains('on'); t.classList.toggle('on', v); onCh(v); });
+    const t = h('div', { class: 'wep-toggle' + (on ? ' on' : ''), role: 'switch', tabindex: '0', 'aria-checked': String(!!on) });
+    const change = () => { const v = !t.classList.contains('on'); t.classList.toggle('on', v); t.setAttribute('aria-checked', String(v)); onCh(v); };
+    t.addEventListener('click', change);
+    t.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); change(); } });
     return h('div', { class: 'wep-row' }, h('label', {}, label), t);
   };
   const select = (label, options, val, onCh) => {
@@ -176,8 +192,9 @@
   function mount() {
     if (document.getElementById('we-panel-root')) return;
     const st = h('style', { id: 'we-panel-style' }, CSS);
-    const fab = h('div', { class: 'we-fab', id: 'we-fab', title: '壁纸引擎' });
+    const fab = h('div', { class: 'we-fab', id: 'we-fab', role: 'button', tabindex: '0', title: '壁纸引擎' });
     fab.innerHTML = fabIcon();
+    fab.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePanel(); } });
     root = h('div', { id: 'we-panel-root' });
     document.documentElement.append(st, root, fab);
 
@@ -198,12 +215,25 @@
 
   const ROPE_W = 52, ROPE_H = 57, ROPE_TOP = 64;
   let rope = null, ropeImg = null, lastMascotJson = '';
+  let ropeObserver = null, ropeObservedMain = null;
   const ropePar = { tx: 0, ty: 0, cx: 0, cy: 0, raf: 0 };
+  const ropeMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
   const mascotCfg = () => {
     const m = payload().mascot || {};
     return { enabled: m.enabled !== false, form: m.form || 'whale', xPct: num(m.xPct, 0.88), size: clamp(num(m.size, 1), 0.6, 2) };
   };
+
+  function removeRope() {
+    if (rope) {
+      clearTimeout(rope._artRetry);
+      clearTimeout(rope._settleTimer);
+      rope.remove();
+    }
+    rope = null; ropeImg = null;
+    ropeObserver?.disconnect();
+    ropeObservedMain = null;
+  }
 
   // Keep the rope/FAB in step with pushed config (called on every refresh tick).
   function syncRope() {
@@ -211,12 +241,13 @@
     const j = JSON.stringify(mc);
     const fab = document.getElementById('we-fab');
     if (!mc.enabled) {
-      if (rope) { rope.remove(); rope = null; ropeImg = null; lastMascotJson = j; }
+      if (rope) { removeRope(); lastMascotJson = j; }
       if (fab) fab.style.display = '';
       return;
     }
     if (fab) fab.style.display = 'none';
     if (j === lastMascotJson && rope) {
+      if (!rope._dragging) positionRope(mc); // workspace/right panel may have resized
       // An <img> that failed while the bridge was down stays broken even after
       // the URL is healthy again. Re-check it on refresh ticks; the timer guard
       // keeps this from turning into a tight retry loop.
@@ -236,15 +267,65 @@
   }
 
   function positionRope(mc = mascotCfg()) {
-    if (!rope) return;
-    rope.style.width = ROPE_W * mc.size + 'px';
-    rope._art.style.height = ROPE_H * mc.size + 'px';
+    if (!rope || rope._dragging) return;
+    const workbench = payload().fx?.appearance === 'workbench';
+    const main = document.querySelector('main[class*="MainContentSurface"]');
+    if (ropeObservedMain !== (workbench ? main : null)) {
+      ropeObserver?.disconnect();
+      ropeObservedMain = workbench ? main : null;
+      if (ropeObservedMain) {
+        ropeObserver ||= new ResizeObserver(() => { if (!rope?._dragging) positionRope(); });
+        ropeObserver.observe(ropeObservedMain);
+      }
+    }
+    const w = ROPE_W * mc.size, artH = ROPE_H * mc.size;
+    rope.style.width = w + 'px';
+    rope._art.style.height = artH + 'px';
     rope._cordBase = Math.round(24 * mc.size);
     if (!rope._pulled) rope._cord.style.height = rope._cordBase + 'px';
-    rope._x = clamp(Math.round(mc.xPct * innerWidth - (ROPE_W * mc.size) / 2), 8, innerWidth - ROPE_W * mc.size - 8);
+    if (!workbench || !main) {
+      rope._minX = 8; rope._maxX = Math.max(8, innerWidth - w - 8);
+      rope._mainLeft = 0; rope._mainWidth = innerWidth;
+      rope._x = clamp(Math.round(mc.xPct * innerWidth - w / 2), rope._minX, rope._maxX);
+      rope.style.left = rope._x + 'px';
+      rope.style.top = ROPE_TOP + 'px';
+      return;
+    }
+    const r = main.getBoundingClientRect();
+    const minX = Math.max(8, r.left + 12), maxX = Math.min(innerWidth - 8, r.right - 12) - w;
+    rope._minX = maxX >= minX ? minX : 8;
+    rope._maxX = maxX >= minX ? maxX : Math.max(8, innerWidth - w - 8);
+    rope._mainLeft = r.left; rope._mainWidth = r.width;
+    // xPct belongs to the measured main surface in workbench mode. This keeps
+    // a dragged position stable across viewport and right-panel resizing.
+    const desiredX = clamp(Math.round(r.left + mc.xPct * r.width - w / 2), rope._minX, rope._maxX);
+    const h = rope._cordBase + artH + 2;
+    const minY = Math.max(8, r.top + 6);
+    const maxY = Math.max(minY, Math.min(innerHeight - h - 8, r.bottom - h - 8));
+    const xs = [...new Set([desiredX, rope._maxX].map((x) => Math.round(x)))];
+    const ys = [...new Set([r.top + 6, r.top + 82, r.top + 122, r.top + 162]
+      .map((y) => clamp(Math.round(y), minY, maxY)))];
+    const obstacles = [...main.querySelectorAll('header,button,a,[role="button"],input,textarea,[contenteditable="true"],[data-user-message-bubble],pre,[class*="agent-activity"]')]
+      .map((el) => el.getBoundingClientRect())
+      .filter((o) => o.width > 2 && o.height > 2 && o.bottom > 0 && o.top < innerHeight && o.right > 0 && o.left < innerWidth);
+    const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+      * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+    let best = null;
+    for (let xi = 0; xi < xs.length; xi++) for (let yi = 0; yi < ys.length; yi++) {
+      const rect = { left: xs[xi], right: xs[xi] + w, top: ys[yi], bottom: ys[yi] + h };
+      let collisions = 0;
+      for (const obstacle of obstacles) collisions += overlap(rect, obstacle);
+      // Collision avoidance wins; then prefer top/right and the persisted x.
+      const score = collisions * 10000 + yi * 40 + xi * 5 + Math.abs(xs[xi] - desiredX) * 0.01;
+      if (!best || score < best.score) best = { x: xs[xi], y: ys[yi], score };
+    }
+    rope._x = best?.x ?? desiredX;
     rope.style.left = rope._x + 'px';
-    rope.style.top = ROPE_TOP + 'px';
+    rope.style.top = (best?.y ?? minY) + 'px';
   }
+
+  function ropeWindowLayout() { if (rope && !rope._dragging) positionRope(); }
+  addEventListener('resize', ropeWindowLayout);
 
   // Retry a failed mascot image with capped exponential backoff. A bridge
   // restart or a temporary 404 must not leave a permanent broken-image glyph.
@@ -311,7 +392,7 @@
   }
 
   function mountRope() {
-    rope = h('div', { class: 'we-rope', id: 'we-rope', title: '下拉或点击打开面板 · 左右拖动换位' });
+    rope = h('div', { class: 'we-rope', id: 'we-rope', role: 'button', tabindex: '0', title: '下拉或点击打开面板 · 左右拖动换位' });
     const cord = h('div', { class: 'we-rope-cord' });
     const art = h('div', { class: 'we-rope-art' });
     ropeImg = h('img', { draggable: 'false', alt: '' });
@@ -331,16 +412,22 @@
     rope._artRetry = 0;
     rope._artRetryMs = 1000;
     rope._x = 8; rope._form = '';
+    rope._dragging = false;
     document.documentElement.append(rope);
+    rope.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ') && rope) { e.preventDefault(); togglePanel(rope); }
+    });
 
     let drag = null;
     const settleBack = () => {
       rope.classList.add('settle');
       rope._pulled = false;
       rope._cord.style.height = rope._cordBase + 'px'; // cord springs back
-      setTimeout(() => rope?.classList.remove('settle'), 300);
+      clearTimeout(rope._settleTimer);
+      rope._settleTimer = setTimeout(() => rope?.classList.remove('settle'), 300);
     };
     rope.addEventListener('pointerdown', (e) => {
+      rope._dragging = true;
       drag = { x0: e.clientX, y0: e.clientY, l0: rope._x, moved: false, opened: false };
       rope.setPointerCapture(e.pointerId);
       rope.classList.add('dragging');
@@ -350,7 +437,7 @@
       if (!drag || !rope) return;
       const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
       if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
-      rope._x = clamp(drag.l0 + dx, 8, innerWidth - rope.offsetWidth - 8);
+      rope._x = clamp(drag.l0 + dx, rope._minX ?? 8, rope._maxX ?? Math.max(8, innerWidth - rope.offsetWidth - 8));
       const pull = clamp(dy, 0, 140);
       rope.style.left = rope._x + 'px';
       // the widget itself stays pinned to the top edge; the CORD stretches,
@@ -361,12 +448,18 @@
       if (pull > 56 && !drag.opened) { drag.opened = true; if (!root.firstChild) togglePanel(rope); }
     });
     const release = (cancelled) => {
-      if (!drag || !rope) { drag = null; return; }
+      if (!drag || !rope) { drag = null; if (rope) rope._dragging = false; return; }
+      rope._dragging = false;
       rope.classList.remove('dragging');
       if (!cancelled && !drag.moved) togglePanel(rope); // plain click toggles the drawer
       else {
         settleBack();
-        cmd({ c: 'mascot.set', xPct: +((rope._x + rope.offsetWidth / 2) / innerWidth).toFixed(4) });
+        const center = rope._x + rope.offsetWidth / 2;
+        const workbench = payload().fx?.appearance === 'workbench';
+        const xPct = workbench && rope._mainWidth > 0
+          ? (center - rope._mainLeft) / rope._mainWidth
+          : center / innerWidth;
+        cmd({ c: 'mascot.set', xPct: +clamp(xPct, 0, 1).toFixed(4) });
       }
       drag = null;
     };
@@ -379,7 +472,7 @@
   function ropeParMove(e) {
     if (!rope) return;
     const par = payload().parallax || {};
-    if (!par.enabled) {
+    if (!par.enabled || ropeMotion?.matches) {
       ropePar.tx = ropePar.ty = 0;
       if (ropePar.cx || ropePar.cy) pumpRopePar();
       return;
@@ -399,6 +492,18 @@
     });
   }
   document.addEventListener('pointermove', ropeParMove, { passive: true });
+  function ropeMotionSync() {
+    if (!ropeMotion?.matches) return;
+    cancelAnimationFrame(ropePar.raf);
+    ropePar.raf = 0;
+    ropePar.tx = ropePar.ty = ropePar.cx = ropePar.cy = 0;
+    if (rope) rope.style.translate = '';
+  }
+  if (ropeMotion) {
+    try { ropeMotion.addEventListener('change', ropeMotionSync); }
+    catch { ropeMotion.addListener(ropeMotionSync); }
+    ropeMotionSync();
+  }
 
   function togglePanel(anchor) {
     if (root.firstChild) { root.innerHTML = ''; clearInterval(refreshTimer); refreshTimer = 0; return; }
@@ -412,12 +517,13 @@
     if (anchor && anchor.classList?.contains('we-rope')) {
       const w = Math.min(400, innerWidth - 28);
       const r = anchor.getBoundingClientRect();
-      const top = Math.round(r.bottom + 8);
+      const wantedTop = Math.round(r.bottom + 8);
+      const top = innerHeight - wantedTop - 14 < 220 ? 14 : wantedTop;
       p.style.left = clamp(Math.round(r.left + r.width / 2 - w / 2), 14, innerWidth - w - 14) + 'px';
       p.style.top = top + 'px';
       p.style.right = 'auto';
       p.style.bottom = 'auto';
-      p.style.height = `min(620px, ${Math.max(220, innerHeight - top - 14)}px)`;
+      p.style.height = `min(620px, ${Math.max(80, innerHeight - top - 14)}px)`;
       p.style.transformOrigin = 'top center';
     }
     // don't yank the UI while the user is interacting with it
@@ -582,7 +688,14 @@
   }
 
   function renderFx() {
-    const fx = payload().fx || {};
+    const p = payload(), fx = p.fx || {};
+    const workbench = fx.appearance === 'workbench';
+    body.append(h('div', { class: 'wep-sec' }, '外观模式'));
+    body.append(select('界面外观', [['legacy', '原有外观'], ['workbench', '深色磨砂工作台']], workbench ? 'workbench' : 'legacy',
+      (v) => cmd({ c: 'appearance.set', mode: v })));
+    body.append(h('div', { class: 'wep-row' }, confirmBtn('恢复优化前外观', () => cmd({ c: 'appearance.restore' }))));
+    body.append(h('div', { class: 'wep-note' }, '视觉恢复只回退外观、相关动效和挂件大小/位置，不套用整机预设，也不改播放列表、当前壁纸或播放设置。'));
+
     body.append(h('div', { class: 'wep-sec' }, '壁纸画面'));
     body.append(slider('透明度', 0, 1, 0.01, num(fx.opacity, 0.32), pct, (v) => cmd({ c: 'fx', k: 'opacity', v })));
     body.append(slider('亮度', 0, 2, 0.01, num(fx.brightness, 0.68), pct, (v) => cmd({ c: 'fx', k: 'brightness', v })));
@@ -593,16 +706,33 @@
     body.append(slider('缩放', 1, 3, 0.05, num(fx.zoom, 1), (v) => v.toFixed(2) + '×', (v) => cmd({ c: 'fx', k: 'zoom', v })));
     body.append(slider('水平位移', 0, 100, 1, num(fx.panX, 50), (v) => v + '%', (v) => cmd({ c: 'fx', k: 'panX', v })));
     body.append(slider('垂直位移', 0, 100, 1, num(fx.panY, 50), (v) => v + '%', (v) => cmd({ c: 'fx', k: 'panY', v })));
-    body.append(h('div', { class: 'wep-sec' }, '玻璃面板（大背景）'));
+
+    body.append(h('div', { class: 'wep-sec' }, '界面玻璃 · 主工作区 / 输入框'));
     body.append(slider('面板·亮色', 0, 1, 0.01, num(fx.panelAlpha, 0.22), pct, (v) => cmd({ c: 'fx', k: 'panelAlpha', v })));
     body.append(slider('面板·暗色', 0, 1, 0.01, num(fx.panelAlphaDark, 0.30), pct, (v) => cmd({ c: 'fx', k: 'panelAlphaDark', v })));
-    body.append(slider('磨砂强度', 0, 60, 1, num(fx.panelBlur, 10), px, (v) => cmd({ c: 'fx', k: 'panelBlur', v })));
+    body.append(slider('主区磨砂', 0, 60, 1, num(fx.panelBlur, 10), px, (v) => cmd({ c: 'fx', k: 'panelBlur', v })));
     body.append(slider('输入框', 0, 1, 0.01, num(fx.composerAlpha, 0.55), pct, (v) => cmd({ c: 'fx', k: 'composerAlpha', v })));
-    body.append(h('div', { class: 'wep-sec' }, '对话内容卡片（文字保底）'));
-    body.append(slider('卡片浓度', 0, 1, 0.01, num(fx.contentAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'contentAlpha', v })));
-    body.append(slider('卡片磨砂', 0, 60, 1, num(fx.contentBlur, 18), px, (v) => cmd({ c: 'fx', k: 'contentBlur', v })));
-    body.append(toggle('主题随壁纸', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
-    body.append(h('div', { class: 'wep-note' }, '壁纸透出来靠「玻璃面板」压低，文字清楚靠「内容卡片」抬高——两者独立调。开启主题随壁纸后玻璃深浅跟随壁纸明暗。'));
+    body.append(h('div', { class: 'wep-sec' }, '界面玻璃 · 独立侧栏'));
+    body.append(slider('侧栏·亮色', 0, 1, 0.01, num(fx.sidebarAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'sidebarAlpha', v })));
+    body.append(slider('侧栏·暗色', 0, 1, 0.01, num(fx.sidebarAlphaDark, 0.68), pct, (v) => cmd({ c: 'fx', k: 'sidebarAlphaDark', v })));
+    body.append(slider('侧栏磨砂', 0, 60, 1, num(fx.sidebarBlur, 18), px, (v) => cmd({ c: 'fx', k: 'sidebarBlur', v })));
+    if (!workbench) {
+      body.append(h('div', { class: 'wep-sec' }, '对话内容卡片（仅原有外观）'));
+      body.append(slider('卡片浓度', 0, 1, 0.01, num(fx.contentAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'contentAlpha', v })));
+      body.append(slider('卡片磨砂', 0, 60, 1, num(fx.contentBlur, 18), px, (v) => cmd({ c: 'fx', k: 'contentBlur', v })));
+    } else body.append(h('div', { class: 'wep-note' }, '工作台使用连续主表面，transcript 不再叠加整张大卡片；消息、代码、附件、diff 和工具结果保留各自语义背景。'));
+
+    body.append(h('div', { class: 'wep-sec' }, '可读性'));
+    body.append(toggle('主题随壁纸（会改宿主明暗）', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
+    if (workbench) body.append(toggle('自动增强可读性（只调玻璃）', !!fx.autoReadability, (v) => cmd({ c: 'fx', k: 'autoReadability', v })));
+    body.append(h('div', { class: 'wep-note' }, '自动可读性仅在切换/就绪后读取 32×32 代表画面，微调玻璃遮罩；不会修改主题或滑杆保存值。取样失败时使用基线。'));
+
+    const fl = p.fxLayer || { click: {}, trail: {} }, par = p.parallax || {};
+    body.append(h('div', { class: 'wep-sec' }, '动效'));
+    body.append(toggle('点击粒子', !!fl.click?.enabled, (v) => cmd({ c: 'fxLayer', section: 'click', k: 'enabled', v })));
+    body.append(toggle('鼠标拖尾', !!fl.trail?.enabled, (v) => cmd({ c: 'fxLayer', section: 'trail', k: 'enabled', v })));
+    body.append(toggle('壁纸 / 界面视差', !!par.enabled, (v) => cmd({ c: 'parallax', k: 'enabled', v })));
+    body.append(h('div', { class: 'wep-note' }, '过场细节在「播放」，粒子与视差参数在「扩展」。系统要求减少动态效果时会缩短过场并停用视差，不暂停主动播放的壁纸。'));
   }
 
   function renderLists() {
@@ -736,14 +866,18 @@
     api: PANEL_API,
     build: window.__wePanelBuild,
     open: () => { mount(); if (!root.firstChild) togglePanel(document.getElementById('we-rope')); },
-    close: () => { if (root) root.innerHTML = ''; },
+    close: () => { if (root?.firstChild) togglePanel(); },
     destroy() {
       clearInterval(refreshTimer);
       clearInterval(mascotTimer);
       cancelAnimationFrame(ropePar.raf);
       document.removeEventListener('pointermove', ropeParMove);
-      document.getElementById('we-rope')?.remove();
-      rope = null; ropeImg = null;
+      removeEventListener('resize', ropeWindowLayout);
+      if (ropeMotion) {
+        try { ropeMotion.removeEventListener('change', ropeMotionSync); }
+        catch { ropeMotion.removeListener(ropeMotionSync); }
+      }
+      removeRope();
       document.getElementById('we-fab')?.remove();
       document.getElementById('we-panel-root')?.remove();
       document.getElementById('we-panel-style')?.remove();

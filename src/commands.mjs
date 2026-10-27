@@ -4,7 +4,8 @@
 // config and bumps epochs accordingly.
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_FX, PRESET_DIR, activeList, clamp } from './config.mjs';
+import { DEFAULT_FX, PRESET_DIR, CONFIG_FILE, BACKUP_DIR, VISUAL_RESTORE_FILE, activeList, clamp } from './config.mjs';
+import { APPEARANCE_MODES, WORKBENCH_FX } from './visual-style.mjs';
 
 const FX_LIMITS = {
   opacity: [0, 1], brightness: [0, 4], contrast: [0, 4], saturate: [0, 4], blur: [0, 40],
@@ -12,6 +13,7 @@ const FX_LIMITS = {
   rate: [0.25, 3], volume: [0, 1], fadeMs: [0, 5000],
   panelAlpha: [0, 1], panelAlphaDark: [0, 1], panelBlur: [0, 60], composerAlpha: [0, 1],
   contentAlpha: [0, 1], contentBlur: [0, 60],
+  sidebarAlpha: [0, 1], sidebarAlphaDark: [0, 1], sidebarBlur: [0, 60],
   transitionSpeed: [0.4, 3],
 };
 const TRANSITIONS = new Set(['cut', 'fade', 'slide', 'wipe', 'iris', 'zoom', 'bars']);
@@ -39,6 +41,99 @@ function nextIndex(cfg, from) {
   return ((from + 1) % n + n) % n;
 }
 export { nextIndex };
+
+// The optimization restore point is deliberately field-scoped. In particular,
+// never snapshot whole fx/mascot objects: that would also roll back playback,
+// volume/rate and custom resource state on restore.
+export const VISUAL_SNAPSHOT_PATHS = Object.freeze([
+  'fx.appearance', 'fx.opacity', 'fx.brightness', 'fx.contrast', 'fx.saturate',
+  'fx.blur', 'fx.dim', 'fx.fadeMs', 'fx.transition', 'fx.transitionSpeed',
+  'fx.transitionDir', 'fx.panelAlpha', 'fx.panelAlphaDark', 'fx.panelBlur',
+  'fx.composerAlpha', 'fx.contentAlpha', 'fx.contentBlur', 'fx.autoTint',
+  'fx.sidebarAlpha', 'fx.sidebarAlphaDark', 'fx.sidebarBlur', 'fx.autoReadability',
+  'fxLayer.click.enabled', 'fxLayer.trail.enabled',
+  'parallax.enabled', 'parallax.uiPct', 'mascot.size', 'mascot.xPct',
+]);
+
+const getPath = (obj, dotted) => dotted.split('.').reduce((value, key) => value?.[key], obj);
+const setPath = (obj, dotted, value) => {
+  const keys = dotted.split('.');
+  const leaf = keys.pop();
+  let target = obj;
+  for (const key of keys) target = target[key] ||= {};
+  target[leaf] = value;
+};
+
+export function captureVisualValues(cfg) {
+  return Object.fromEntries(VISUAL_SNAPSHOT_PATHS.map((key) => [key, getPath(cfg, key)]));
+}
+
+function validVisualValue(key, value) {
+  if (key === 'fx.appearance') return APPEARANCE_MODES.includes(value);
+  if (key === 'fx.transition') return TRANSITIONS.has(value);
+  if (key === 'fx.transitionDir') return DIRS.has(value);
+  if (key.endsWith('.enabled') || key === 'fx.autoTint' || key === 'fx.autoReadability') return typeof value === 'boolean';
+  if (!Number.isFinite(value)) return false;
+  if (key.startsWith('fx.')) {
+    const limits = FX_LIMITS[key.slice(3)];
+    return !!limits && value >= limits[0] && value <= limits[1];
+  }
+  if (key === 'parallax.uiPct') return value >= 0 && value <= 10;
+  if (key === 'mascot.size') return value >= 0.6 && value <= 2;
+  if (key === 'mascot.xPct') return value >= 0 && value <= 1;
+  return false;
+}
+
+export function applyVisualValues(cfg, values) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return false;
+  // Validate everything before the first mutation: malformed snapshots cannot
+  // leave a half-restored configuration behind.
+  for (const key of VISUAL_SNAPSHOT_PATHS) {
+    if (!Object.hasOwn(values, key) || !validVisualValue(key, values[key])) return false;
+  }
+  for (const key of VISUAL_SNAPSHOT_PATHS) setPath(cfg, key, values[key]);
+  return true;
+}
+
+function visualFiles(ctx = {}) {
+  return {
+    config: ctx.configFile || CONFIG_FILE,
+    restore: ctx.visualRestoreFile || VISUAL_RESTORE_FILE,
+    backups: ctx.backupDir || BACKUP_DIR,
+  };
+}
+
+function saveVisualRestorePoint(cfg, ctx = {}) {
+  const files = visualFiles(ctx);
+  const suppliedNow = typeof ctx.now === 'function' ? ctx.now() : ctx.now;
+  const now = new Date(suppliedNow ?? Date.now());
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  const dir = path.join(files.backups, `visual-redesign-${stamp}-${process.pid}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const backup = path.join(dir, 'config.json');
+  // Preserve the exact on-disk bytes, not the merged/normalized config.
+  const raw = fs.readFileSync(files.config, 'utf8');
+  fs.writeFileSync(backup, raw, { encoding: 'utf8', flag: 'wx' });
+  const snapshot = JSON.stringify({ version: 1, savedAt: now.toISOString(), values: captureVisualValues(cfg) }, null, 2) + '\n';
+  fs.mkdirSync(path.dirname(files.restore), { recursive: true });
+  const tmp = files.restore + '.tmp';
+  fs.writeFileSync(tmp, snapshot, 'utf8');
+  fs.renameSync(tmp, files.restore);
+  return { backup, restore: files.restore };
+}
+
+function readVisualRestorePoint(ctx = {}) {
+  const files = visualFiles(ctx);
+  const data = JSON.parse(fs.readFileSync(files.restore, 'utf8'));
+  if (data?.version !== 1 || !data.values) throw new Error('invalid visual restore point');
+  return { ...data, file: files.restore };
+}
+
+const booleanValue = (value) => {
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  return null;
+};
 
 export function applyCommand(cfg, cmd, ctx = {}) {
   const c = cmd.c;
@@ -84,14 +179,64 @@ export function applyCommand(cfg, cmd, ctx = {}) {
     case 'pause': cfg.paused = true; out.message = '暂停'; return out;
     case 'toggle': cfg.paused = !cfg.paused; out.message = cfg.paused ? '暂停' : '播放'; return out;
 
+    case 'appearance.set': {
+      const mode = String(cmd.mode || '');
+      if (!APPEARANCE_MODES.includes(mode)) return fail(`未知外观模式: ${mode}`);
+      if (mode === 'legacy') {
+        cfg.fx.appearance = 'legacy';
+        out.message = '已切换到原有外观（视觉恢复点仍保留）';
+        return out;
+      }
+      if (cfg.fx.appearance === 'workbench') {
+        return { changed: false, libChanged: false, message: '深色磨砂工作台已启用' };
+      }
+      let restorePoint = null;
+      const restoreFile = visualFiles(ctx).restore;
+      if (!fs.existsSync(restoreFile)) {
+        try { restorePoint = saveVisualRestorePoint(cfg, ctx); }
+        catch (e) { return fail(`无法建立视觉备份，未修改配置: ${e.message}`); }
+      }
+      Object.assign(cfg.fx, WORKBENCH_FX);
+      cfg.fxLayer.click.enabled = false;
+      cfg.fxLayer.trail.enabled = false;
+      cfg.parallax.enabled = false;
+      cfg.parallax.uiPct = 0;
+      cfg.mascot.size = 0.82;
+      // In workbench mode this is a fraction of the measured main surface,
+      // not the viewport; panel.js clamps it against real DOM bounds.
+      cfg.mascot.xPct = 0.92;
+      out.message = '深色磨砂工作台已启用';
+      if (restorePoint) out.message += ` · 完整备份: ${restorePoint.backup}`;
+      return out;
+    }
+    case 'appearance.restore': {
+      let snapshot;
+      try { snapshot = readVisualRestorePoint(ctx); }
+      catch { return fail('没有可用的视觉恢复点'); }
+      if (!applyVisualValues(cfg, snapshot.values)) return fail('视觉恢复点已损坏，未修改配置');
+      out.clearVisualSnapshot = snapshot.file;
+      out.message = '已恢复优化前外观；播放列表、当前壁纸和播放设置未改动';
+      return out;
+    }
     case 'fx': {
       const { k, v } = cmd;
       if (!(k in DEFAULT_FX)) return fail(`未知效果键: ${k}`);
-      if (typeof DEFAULT_FX[k] === 'boolean') cfg.fx[k] = !!v;
-      else if (typeof DEFAULT_FX[k] === 'number') cfg.fx[k] = clamp(Number(v) || 0, ...(FX_LIMITS[k] || [-Infinity, Infinity]));
-      else if (k === 'transition') cfg.fx.transition = TRANSITIONS.has(v) ? v : cfg.fx.transition;
-      else if (k === 'transitionDir') cfg.fx.transitionDir = DIRS.has(v) ? v : cfg.fx.transitionDir;
-      else cfg.fx[k] = v;
+      if (k === 'appearance') return fail('请使用 appearance.set 切换外观');
+      if (typeof DEFAULT_FX[k] === 'boolean') {
+        const parsed = booleanValue(v);
+        if (parsed === null) return fail(`无效布尔值: ${k}`);
+        cfg.fx[k] = parsed;
+      } else if (typeof DEFAULT_FX[k] === 'number') {
+        const parsed = Number(v);
+        if (!Number.isFinite(parsed)) return fail(`无效数值: ${k}`);
+        cfg.fx[k] = clamp(parsed, ...(FX_LIMITS[k] || [-Infinity, Infinity]));
+      } else if (k === 'transition') {
+        if (!TRANSITIONS.has(v)) return fail(`无效过场: ${v}`);
+        cfg.fx.transition = v;
+      } else if (k === 'transitionDir') {
+        if (!DIRS.has(v)) return fail(`无效过场方向: ${v}`);
+        cfg.fx.transitionDir = v;
+      } else cfg.fx[k] = v;
       out.message = `${k} = ${cfg.fx[k]}`;
       return out;
     }

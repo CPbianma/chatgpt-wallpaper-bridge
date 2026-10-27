@@ -8,8 +8,7 @@ if (!pages.length) { console.error('no app page'); process.exit(1); }
 const c = new CDP(pages[0].webSocketDebuggerUrl);
 await c.open();
 await c.send('Page.enable').catch(() => {});
-// resume video first so the frame is live, then give it a moment
-await c.send('Runtime.evaluate', { expression: `(() => { const v = document.querySelector('#codex-wallpaper-layer video'); if (v) { v.play().catch(()=>{}); return 'play sent'; } return 'no video'; })()`, returnByValue: true });
+// Give compositing a moment without changing playback or pause state.
 await new Promise((r) => setTimeout(r, 900));
 const shot = await c.send('Page.captureScreenshot', { format: 'png' });
 fs.mkdirSync(new URL('.', 'file:///' + out.replaceAll('\\', '/')).pathname.replace(/^\/([A-Za-z]:)/, '$1'), { recursive: true });
