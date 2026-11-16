@@ -76,6 +76,24 @@ node src/bridge.mjs start
 
 首次启动且播放列表为空时，会自动把库里的全部视频壁纸收进轮换列表。桥接进程保持前台运行，`Ctrl+C` 或另开终端 `node src/bridge.mjs stop` 停止。
 
+### Codex 一键启动（无需每次打开命令行）
+
+部分 Microsoft Store 版 Codex 默认不会开放本工具所需的本机 DevTools 端口。运行一次下面的安装命令：
+
+```powershell
+npm run install-launcher
+```
+
+脚本会在桌面和开始菜单创建 **Codex + Wallpaper** 快捷方式。以后从这个入口启动即可：它会在 `127.0.0.1:12230` 打开 Codex 的 DevTools 端口，等待应用就绪，再把桥接器隐藏运行，全程不需要管理员权限，也不会保留命令行窗口。
+
+如果 Codex 已经从普通图标启动，请先从系统托盘彻底退出，再点新快捷方式。卸载快捷方式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-codex-launcher.ps1 -Uninstall
+```
+
+DevTools 端点没有身份验证；启用期间，同一 Windows 用户下的其他进程可能读取或控制 Codex 页面。完全退出 Codex 并从普通图标启动即可关闭端点。
+
 日常建议开一次自启，以后开机即隐身运行、应用一开就挂上；自启同时会注册并立即启动**看门狗**——桥接进程万一被杀（安全软件强杀、taskkill 等），只要应用开着就会在约一分钟内自动拉起，重启记录写在 `watchdog.log`：
 
 ```powershell

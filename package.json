@@ -10,7 +10,8 @@
     "start": "node src/bridge.mjs start",
     "stop": "node src/bridge.mjs stop",
     "status": "node src/bridge.mjs status",
-    "list": "node src/bridge.mjs list"
+    "list": "node src/bridge.mjs list",
+    "install-launcher": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-codex-launcher.ps1"
   },
   "keywords": ["wallpaper-engine", "chatgpt", "codex", "desktop", "cdp", "wallpaper", "rotation"],
   "repository": {
