@@ -592,7 +592,8 @@
       (showHidden ? x.hidden : !x.hidden));
     grid.innerHTML = '';
     if (!rows.length) { grid.append(h('div', { class: 'wep-empty', style: 'grid-column:1/-1' }, showHidden ? '没有已隐藏的壁纸' : '没有匹配的壁纸')); return; }
-    for (const x of rows.slice(0, 120)) {
+    // Render every match; native lazy images defer offscreen thumbnail loads.
+    for (const x of rows) {
       const card = h('div', { class: 'wep-card' + (x.id === curId ? ' cur' : ''), title: x.title },
         x.hasThumb ? h('img', { src: `https://wallpaper.local/thumb/${x.id}`, loading: 'lazy' }) : h('div'),
         h('span', { class: 'b' }, x.weType === 'scene' ? '场景' : x.weType === 'web' ? '网页' : x.kind === 'video' ? '视频' : '图片'),
@@ -605,7 +606,7 @@
       if (!x.hidden) card.addEventListener('click', () => cmd({ c: 'select', id: x.id }));
       grid.append(card);
     }
-    if (rows.length > 120) grid.append(h('div', { class: 'wep-note', style: 'grid-column:1/-1' }, `…共 ${rows.length} 张，仅显示前 120`));
+    grid.append(h('div', { class: 'wep-note', style: 'grid-column:1/-1' }, `共 ${rows.length} 张`));
   }
 
   function renderPlay() {
@@ -723,7 +724,8 @@
     } else body.append(h('div', { class: 'wep-note' }, '工作台使用连续主表面，transcript 不再叠加整张大卡片；消息、代码、附件、diff 和工具结果保留各自语义背景。'));
 
     body.append(h('div', { class: 'wep-sec' }, '可读性'));
-    body.append(toggle('主题随壁纸（会改宿主明暗）', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
+    body.append(toggle('主题随壁纸（仅页面）', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
+    body.append(h('div', { class: 'wep-note' }, 'Windows 原生窗口按钮不随页面主题变化。若最小化/关闭图标过暗，请在应用外观设置中选择深色；需要始终匹配时关闭「主题随壁纸」。'));
     if (workbench) body.append(toggle('自动增强可读性（只调玻璃）', !!fx.autoReadability, (v) => cmd({ c: 'fx', k: 'autoReadability', v })));
     body.append(h('div', { class: 'wep-note' }, '自动可读性仅在切换/就绪后读取 32×32 代表画面，微调玻璃遮罩；不会修改主题或滑杆保存值。取样失败时使用基线。'));
 
