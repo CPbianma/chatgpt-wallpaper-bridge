@@ -592,7 +592,8 @@
       (showHidden ? x.hidden : !x.hidden));
     grid.innerHTML = '';
     if (!rows.length) { grid.append(h('div', { class: 'wep-empty', style: 'grid-column:1/-1' }, showHidden ? '没有已隐藏的壁纸' : '没有匹配的壁纸')); return; }
-    for (const x of rows.slice(0, 120)) {
+    // Render every match; native lazy images defer offscreen thumbnail loads.
+    for (const x of rows) {
       const card = h('div', { class: 'wep-card' + (x.id === curId ? ' cur' : ''), title: x.title },
         x.hasThumb ? h('img', { src: `https://wallpaper.local/thumb/${x.id}`, loading: 'lazy' }) : h('div'),
         h('span', { class: 'b' }, x.weType === 'scene' ? '场景' : x.weType === 'web' ? '网页' : x.kind === 'video' ? '视频' : '图片'),
@@ -605,7 +606,7 @@
       if (!x.hidden) card.addEventListener('click', () => cmd({ c: 'select', id: x.id }));
       grid.append(card);
     }
-    if (rows.length > 120) grid.append(h('div', { class: 'wep-note', style: 'grid-column:1/-1' }, `…共 ${rows.length} 张，仅显示前 120`));
+    grid.append(h('div', { class: 'wep-note', style: 'grid-column:1/-1' }, `共 ${rows.length} 张`));
   }
 
   function renderPlay() {

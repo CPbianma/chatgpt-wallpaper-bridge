@@ -16,6 +16,22 @@ const IMAGE_RE = /\.(png|jpe?g|gif)$/i;
 export const isVideoFile = (f) => VIDEO_RE.test(f);
 export const isImageFile = (f) => IMAGE_RE.test(f);
 
+// Registry, VDF and fallback paths can name the same Windows directory with
+// different casing, or through a junction. Scan its real location only once.
+export function uniqueDirectories(candidates) {
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    try {
+      if (!fs.statSync(candidate).isDirectory()) return false;
+      const real = fs.realpathSync.native(candidate);
+      const key = process.platform === 'win32' ? real.toLowerCase() : real;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    } catch { return false; }
+  });
+}
+
 function steamRoots() {
   const roots = new Set();
   if (process.platform === 'win32') {
@@ -26,7 +42,7 @@ function steamRoots() {
     } catch {}
   }
   for (const p of ['C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam', 'D:\\Steam', 'D:\\SteamLibrary', 'E:\\SteamLibrary']) roots.add(p);
-  return [...roots].filter((p) => fs.existsSync(p));
+  return uniqueDirectories([...roots]);
 }
 
 function parseLibraryFolders(vdf) {
@@ -45,7 +61,7 @@ export function workshopRoots() {
     for (const lib of parseLibraryFolders(path.join(root, 'steamapps', 'libraryfolders.vdf')))
       out.add(path.join(lib, 'steamapps', 'workshop', 'content', '431960'));
   }
-  return [...out].filter((p) => fs.existsSync(p));
+  return uniqueDirectories([...out]);
 }
 
 // "0.75 0.75 0.75" (0..1 floats) -> [r,g,b] 0..255, or null. All-zero = unset (WE default).
@@ -113,9 +129,9 @@ function readItem(root, id) {
   return null;
 }
 
-export function scanLibrary() {
+export function scanLibrary({ roots = workshopRoots(), uploadsDir = path.join(APP_DIR, 'uploads') } = {}) {
   const items = [];
-  for (const root of workshopRoots()) {
+  for (const root of uniqueDirectories(roots)) {
     let ids = [];
     try { ids = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { continue; }
     for (const id of ids) {
@@ -126,15 +142,23 @@ export function scanLibrary() {
   // user imports live outside Steam (survive workshop churn); id is the
   // u-<hash> filename base assigned at import time
   try {
-    for (const f of fs.readdirSync(path.join(APP_DIR, 'uploads'))) {
-      const p = path.join(APP_DIR, 'uploads', f);
+    for (const f of fs.readdirSync(uploadsDir)) {
+      const p = path.join(uploadsDir, f);
       const id = path.basename(f, path.extname(f));
       if (isVideoFile(f)) items.push({ id, title: id, kind: 'video', path: p, weType: 'upload', rating: 'unrated', schemeColor: null, thumb: null, live: null });
       else if (isImageFile(f)) items.push({ id, title: id, kind: 'image', path: p, weType: 'upload', rating: 'unrated', schemeColor: null, thumb: p, live: null });
     }
   } catch {}
+  // Workshop IDs identify the same item even across distinct Steam libraries.
+  // Prefer a playable source over an incomplete copy's static preview.
+  const byId = new Map();
+  const quality = (item) => item.kind === 'video' ? 2 : item.live ? 1 : 0;
+  for (const item of items) {
+    const previous = byId.get(item.id);
+    if (!previous || quality(item) > quality(previous)) byId.set(item.id, item);
+  }
   const rank = { video: 0, image: 1 };
-  return items.sort((a, b) => rank[a.kind] - rank[b.kind] || a.title.localeCompare(b.title));
+  return [...byId.values()].sort((a, b) => rank[a.kind] - rank[b.kind] || a.title.localeCompare(b.title));
 }
 
 // Resolve a user-supplied token (workshop id, absolute file path, or title
