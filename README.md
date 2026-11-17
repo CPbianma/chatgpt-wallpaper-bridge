@@ -101,7 +101,7 @@ node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply
 | `avatar --user <图> --assistant <图>` | 会话头像（`--clear`/`--off`） |
 | `import <文件…>` / `import-we [--apply N]` | 导入本地文件 / WE 播放列表 |
 | `preset ls\|save\|apply\|delete` | 整机配置快照 |
-| `appearance workbench\|legacy\|restore` | 启用工作台 / 原有外观 / 只恢复优化前视觉字段 |
+| `appearance uniform\|workbench\|legacy\|restore` | 全窗口统一磨砂 / 工作台 / 原有外观 / 只恢复优化前视觉字段 |
 | `autostart [--off]` | 登录后隐藏自启（任务计划 ×2 + 启动文件夹；含看门狗） |
 | `watchdog [off]` | 看门狗：应用开着时桥接被杀自动拉起 |
 
@@ -110,12 +110,15 @@ node src/bridge.mjs import-we        # 列出 WE 客户端播放列表；--apply
 ### 外观切换与视觉恢复
 
 ```powershell
+node src/bridge.mjs appearance uniform     # 全窗口统一磨砂，消除中间竖条和外围白边
 node src/bridge.mjs appearance workbench   # 显式启用深色磨砂工作台
 node src/bridge.mjs appearance legacy      # 只切回原有表面风格
 node src/bridge.mjs appearance restore     # 恢复首次启用前的视觉字段
 node src/bridge.mjs fx --sidebar-alpha-dark 0.78 --sidebar-blur 16
 node src/bridge.mjs fx --no-auto-readability
 ```
+
+面板「效果 → 界面外观」可选择 **全窗口统一磨砂**。该模式把主工作区、侧栏、导航栏和菜单栏放在同一层全窗口玻璃上，取消正文独立背板，避免重复叠加导致明暗断层。使用「面板·亮色/暗色」与「主区磨砂」统一调整；输入框仍独立可调，消息、代码和菜单保留语义背景。正文排版宽度不变。旧配置不会自动切换。
 
 首次启用前会在 `~/.chatgpt-wallpaper/backups/` 建立带时间戳的完整配置备份，并在 `~/.chatgpt-wallpaper/visual-restore.json` 保存视觉专用恢复点。`appearance restore` 只恢复外观、相关动效和挂件大小/位置，不回退播放列表、当前壁纸、切换时间、音量、倍速、live 设置、自定义资源或系统设置；它不同于会套用整机状态的 `preset apply`。面板「效果」页也提供同一条恢复入口。
 

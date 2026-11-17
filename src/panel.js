@@ -690,8 +690,9 @@
   function renderFx() {
     const p = payload(), fx = p.fx || {};
     const workbench = fx.appearance === 'workbench';
+    const uniform = fx.appearance === 'uniform';
     body.append(h('div', { class: 'wep-sec' }, '外观模式'));
-    body.append(select('界面外观', [['legacy', '原有外观'], ['workbench', '深色磨砂工作台']], workbench ? 'workbench' : 'legacy',
+    body.append(select('界面外观', [['legacy', '原有外观'], ['workbench', '深色磨砂工作台'], ['uniform', '全窗口统一磨砂']], fx.appearance || 'legacy',
       (v) => cmd({ c: 'appearance.set', mode: v })));
     body.append(h('div', { class: 'wep-row' }, confirmBtn('恢复优化前外观', () => cmd({ c: 'appearance.restore' }))));
     body.append(h('div', { class: 'wep-note' }, '视觉恢复只回退外观、相关动效和挂件大小/位置，不套用整机预设，也不改播放列表、当前壁纸或播放设置。'));
@@ -712,15 +713,18 @@
     body.append(slider('面板·暗色', 0, 1, 0.01, num(fx.panelAlphaDark, 0.30), pct, (v) => cmd({ c: 'fx', k: 'panelAlphaDark', v })));
     body.append(slider('主区磨砂', 0, 60, 1, num(fx.panelBlur, 10), px, (v) => cmd({ c: 'fx', k: 'panelBlur', v })));
     body.append(slider('输入框', 0, 1, 0.01, num(fx.composerAlpha, 0.55), pct, (v) => cmd({ c: 'fx', k: 'composerAlpha', v })));
-    body.append(h('div', { class: 'wep-sec' }, '界面玻璃 · 独立侧栏'));
-    body.append(slider('侧栏·亮色', 0, 1, 0.01, num(fx.sidebarAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'sidebarAlpha', v })));
-    body.append(slider('侧栏·暗色', 0, 1, 0.01, num(fx.sidebarAlphaDark, 0.68), pct, (v) => cmd({ c: 'fx', k: 'sidebarAlphaDark', v })));
-    body.append(slider('侧栏磨砂', 0, 60, 1, num(fx.sidebarBlur, 18), px, (v) => cmd({ c: 'fx', k: 'sidebarBlur', v })));
-    if (!workbench) {
+    if (!uniform) {
+      body.append(h('div', { class: 'wep-sec' }, '界面玻璃 · 独立侧栏'));
+      body.append(slider('侧栏·亮色', 0, 1, 0.01, num(fx.sidebarAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'sidebarAlpha', v })));
+      body.append(slider('侧栏·暗色', 0, 1, 0.01, num(fx.sidebarAlphaDark, 0.68), pct, (v) => cmd({ c: 'fx', k: 'sidebarAlphaDark', v })));
+      body.append(slider('侧栏磨砂', 0, 60, 1, num(fx.sidebarBlur, 18), px, (v) => cmd({ c: 'fx', k: 'sidebarBlur', v })));
+    }
+    if (uniform) body.append(h('div', { class: 'wep-note' }, '全窗口共用面板浓度和磨砂，不叠加侧栏或对话卡片底色；输入框独立可调。'));
+    if (!workbench && !uniform) {
       body.append(h('div', { class: 'wep-sec' }, '对话内容卡片（仅原有外观）'));
       body.append(slider('卡片浓度', 0, 1, 0.01, num(fx.contentAlpha, 0.62), pct, (v) => cmd({ c: 'fx', k: 'contentAlpha', v })));
       body.append(slider('卡片磨砂', 0, 60, 1, num(fx.contentBlur, 18), px, (v) => cmd({ c: 'fx', k: 'contentBlur', v })));
-    } else body.append(h('div', { class: 'wep-note' }, '工作台使用连续主表面，transcript 不再叠加整张大卡片；消息、代码、附件、diff 和工具结果保留各自语义背景。'));
+    } else if (workbench) body.append(h('div', { class: 'wep-note' }, '工作台使用连续主表面，transcript 不再叠加整张大卡片；消息、代码、附件、diff 和工具结果保留各自语义背景。'));
 
     body.append(h('div', { class: 'wep-sec' }, '可读性'));
     body.append(toggle('主题随壁纸（会改宿主明暗）', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));

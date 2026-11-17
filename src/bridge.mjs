@@ -1124,8 +1124,8 @@ async function cmdAppearance() {
     return;
   }
   if (sub === 'restore') { await cliCmd({ c: 'appearance.restore' }); return; }
-  if (sub !== 'legacy' && sub !== 'workbench') {
-    console.error('appearance: workbench | legacy | restore');
+  if (sub !== 'legacy' && sub !== 'workbench' && sub !== 'uniform') {
+    console.error('appearance: uniform | workbench | legacy | restore');
     process.exitCode = 1;
     return;
   }
