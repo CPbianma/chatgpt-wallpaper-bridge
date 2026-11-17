@@ -724,7 +724,8 @@
     } else body.append(h('div', { class: 'wep-note' }, '工作台使用连续主表面，transcript 不再叠加整张大卡片；消息、代码、附件、diff 和工具结果保留各自语义背景。'));
 
     body.append(h('div', { class: 'wep-sec' }, '可读性'));
-    body.append(toggle('主题随壁纸（会改宿主明暗）', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
+    body.append(toggle('主题随壁纸（仅页面）', fx.autoTint !== false, (v) => cmd({ c: 'fx', k: 'autoTint', v })));
+    body.append(h('div', { class: 'wep-note' }, 'Windows 原生窗口按钮不随页面主题变化。若最小化/关闭图标过暗，请在应用外观设置中选择深色；需要始终匹配时关闭「主题随壁纸」。'));
     if (workbench) body.append(toggle('自动增强可读性（只调玻璃）', !!fx.autoReadability, (v) => cmd({ c: 'fx', k: 'autoReadability', v })));
     body.append(h('div', { class: 'wep-note' }, '自动可读性仅在切换/就绪后读取 32×32 代表画面，微调玻璃遮罩；不会修改主题或滑杆保存值。取样失败时使用基线。'));
 

@@ -697,7 +697,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (glassTint) applyTheme(glassTint);
   }
 
-  // theme-follow: flip the app's own data-theme so text colors stay readable.
+  // Theme-follow changes the renderer's data-theme so text stays readable.
+  // It does not change the persisted host appearance or Electron's native
+  // titleBarOverlay symbolColor; those still follow the app's own settings.
   // Yields when the user changes the theme by hand (until the next wallpaper),
   // and never rewrites the same value (dsh's courtesy rules, adapted).
   function applyTheme(t) {
