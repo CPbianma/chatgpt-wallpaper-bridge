@@ -36,7 +36,7 @@ export const BACKUP_DIR = path.join(APP_DIR, 'backups');
 export const VISUAL_RESTORE_FILE = path.join(APP_DIR, 'visual-restore.json');
 
 export const DEFAULT_FX = {
-  appearance: 'legacy', // legacy | workbench; explicit opt-in only
+  appearance: 'legacy', // legacy | workbench | uniform; explicit opt-in only
   opacity: 0.5,         // wallpaper layer opacity
   brightness: 0.85,     // wallpaper CSS brightness
   contrast: 1.05,       // wallpaper CSS contrast

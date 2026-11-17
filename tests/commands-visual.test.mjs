@@ -62,6 +62,34 @@ function sandbox(t, { writeConfig = true } = {}) {
   return { cfg: normalizeConfig(raw), raw, rawText, ctx, dir };
 }
 
+test('uniform mode preserves tuning and playback, saves one restore point, and restores', (t) => {
+  const { cfg, ctx } = sandbox(t);
+  const before = structuredClone(cfg);
+  assert.equal(applyCommand(cfg, { c: 'appearance.set', mode: 'uniform' }, ctx).changed, true);
+  assert.equal(cfg.fx.appearance, 'uniform');
+  assert.equal(normalizeConfig(cfg).fx.appearance, 'uniform');
+  assert.deepEqual(nonvisual(cfg), nonvisual(before));
+  assert.deepEqual({ ...cfg.fx, appearance: before.fx.appearance }, before.fx);
+  const snapshot = fs.readFileSync(ctx.visualRestoreFile, 'utf8');
+  assert.equal(applyCommand(cfg, { c: 'appearance.set', mode: 'uniform' }, ctx).changed, false);
+  applyCommand(cfg, { c: 'appearance.set', mode: 'workbench' }, ctx);
+  applyCommand(cfg, { c: 'appearance.set', mode: 'uniform' }, ctx);
+  assert.equal(fs.readFileSync(ctx.visualRestoreFile, 'utf8'), snapshot);
+  assert.equal(applyCommand(cfg, { c: 'appearance.restore' }, ctx).changed, true);
+  assert.deepEqual(cfg.fx, before.fx);
+  assert.deepEqual(nonvisual(cfg), nonvisual(before));
+});
+
+test('uniform mode does not change configuration when backup fails', (t) => {
+  const { cfg, ctx, dir } = sandbox(t);
+  const before = structuredClone(cfg);
+  const blocked = path.join(dir, 'not-a-directory');
+  fs.writeFileSync(blocked, 'occupied');
+  ctx.backupDir = path.join(blocked, 'backups');
+  assert.equal(applyCommand(cfg, { c: 'appearance.set', mode: 'uniform' }, ctx).changed, false);
+  assert.deepEqual(cfg, before);
+});
+
 test('legacy configs merge additively without mutating input or shared defaults', () => {
   const old = {
     playlist: [{ kind: 'video', path: 'old.mp4', title: 'Old', id: 'old' }],

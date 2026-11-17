@@ -25,8 +25,8 @@ Commands:
                         rendering (WebWallGL). Off = preview-image fallback.
   playlist              ls | create --name N | use <key> | rename --name N | delete <key>
   preset                ls | save --name N | apply --name N | delete --name N
-  appearance            workbench | legacy | restore
-                        Explicitly enable the dark frosted workbench, return to
+  appearance            uniform | workbench | legacy | restore
+                        Enable full-window glass or the frosted workbench, return to
                         the original surface style, or restore only the visual
                         fields captured before the first workbench enable.
                         Enable creates a timestamped full config backup plus a

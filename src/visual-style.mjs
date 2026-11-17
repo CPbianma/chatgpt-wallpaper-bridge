@@ -2,7 +2,7 @@
 // The two functions below are serialized into the page by visualRuntimeSource();
 // keep them self-contained (no imports or references to module-scope bindings).
 
-export const APPEARANCE_MODES = Object.freeze(['legacy', 'workbench']);
+export const APPEARANCE_MODES = Object.freeze(['legacy', 'workbench', 'uniform']);
 
 // Applied only by the explicit `appearance.set workbench` command. Merely reading
 // an old config never opts the user into this mode or rewrites their settings.

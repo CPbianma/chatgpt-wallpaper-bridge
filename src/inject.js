@@ -101,6 +101,7 @@
     Object.assign(box.style, { position: 'fixed', inset: '0', zIndex: '-1000', pointerEvents: 'none', overflow: 'hidden', background: '#0b0b0d' });
     for (let i = 0; i < 2; i++) {
       const slot = document.createElement('div');
+      slot.className = 'codex-wallpaper-slot';
       Object.assign(slot.style, { position: 'absolute', inset: '0', opacity: '0', willChange: 'opacity,transform,clip-path' });
       box.appendChild(slot);
       state.slots[i] = { wrap: slot, el: null, index: -1 };
@@ -178,6 +179,38 @@ ${W}[data-we-tint=dark] ${selector}{${dark}}`;
     const fontRule = fam
       ? `body,button,input,textarea,select,[contenteditable="true"]{font-family:${fam},system-ui,"Microsoft YaHei",sans-serif!important}\n`
       : '';
+    if (fx.appearance === 'uniform') return fontRule + `
+html[data-we-appearance=uniform][data-we-main=ready] #${BOX_ID}{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;min-width:100vw!important;min-height:100vh!important;max-width:none!important;max-height:none!important;z-index:0!important}
+html[data-we-appearance=uniform][data-we-main=ready] #${BOX_ID}>.codex-wallpaper-slot{position:absolute!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;overflow:hidden!important}
+html[data-we-appearance=uniform][data-we-main=ready] #${BOX_ID}>.codex-wallpaper-slot>img,html[data-we-appearance=uniform][data-we-main=ready] #${BOX_ID}>.codex-wallpaper-slot>video{position:absolute!important;inset:0!important;width:100vw!important;height:100vh!important;min-width:100vw!important;min-height:100vh!important;max-width:none!important;max-height:none!important;object-fit:cover!important;display:block!important}
+html[data-we-appearance=uniform][data-we-main=ready] #${FXC_ID}{z-index:2!important}
+/* An opaque base prevents the native pale window from bleeding through
+   the wallpaper opacity, including the menu bar and the outer frame. */
+html[data-we-appearance=uniform][data-we-main=ready]{background:#141418!important}
+html[data-we-appearance=uniform][data-we-main=ready] body{background:transparent!important;position:relative!important;isolation:isolate!important}
+html[data-we-appearance=uniform][data-we-main=ready] #root{position:relative!important;z-index:1!important;min-height:100vh}
+html[data-we-appearance=uniform][data-we-main=ready]:not([data-we-tint]) #root{${L}}
+html[data-we-appearance=uniform][data-we-main=ready]:not([data-we-tint])[data-theme=dark] #root{${D}}
+html[data-we-appearance=uniform][data-we-main=ready][data-we-tint=light] #root{${L}}
+html[data-we-appearance=uniform][data-we-main=ready][data-we-tint=dark] #root{${D}}
+/* Keep native controls, selected rows and popovers; clear only structural
+   surfaces, whose backgrounds previously stacked on the full-window glass. */
+html[data-we-appearance=uniform][data-we-main=ready] #root [class*="MainContentSurface"],html[data-we-appearance=uniform][data-we-main=ready] #root [data-slate-sidebar-content],
+html[data-we-appearance=uniform][data-we-main=ready] #root [class*="transcriptContent"],html[data-we-appearance=uniform][data-we-main=ready] #root [class*="PageSurfaceLayout"],
+html[data-we-appearance=uniform][data-we-main=ready] #root [class*="WorkspaceContent"],html[data-we-appearance=uniform][data-we-main=ready] #root [class*="MainContentViewport"],
+html[data-we-appearance=uniform][data-we-main=ready] #root [class*="MainContentFrame"],html[data-we-appearance=uniform][data-we-main=ready] #root [class*="ApplicationMenuTopBar"],
+html[data-we-appearance=uniform][data-we-main=ready] #root [class*="ApplicationMenuPageHeader"],html[data-we-appearance=uniform][data-we-main=ready] #root nav[class*="group/sidebar-rail"]{
+ background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+ box-shadow:none!important;border-color:transparent!important;
+}
+html[data-we-appearance=uniform][data-we-main=ready] #root [class*="transcriptContent"]{border-radius:0!important}
+html[data-we-appearance=uniform][data-we-main=ready]:not([data-we-tint]) ${C}{${LC}}
+html[data-we-appearance=uniform][data-we-main=ready]:not([data-we-tint])[data-theme=dark] ${C}{${DC}}
+html[data-we-appearance=uniform][data-we-main=ready][data-we-tint=light] ${C}{${LC}}
+html[data-we-appearance=uniform][data-we-main=ready][data-we-tint=dark] ${C}{${DC}}
+html[data-we-appearance=uniform][data-we-main=ready] main div.pointer-events-none.absolute.inset-x-0,html[data-we-appearance=uniform][data-we-main=ready] main [class*="pointer-events-none"][class*="absolute"][class*="inset-x-0"]{background:transparent!important;background-image:none!important;box-shadow:none!important}
+
+`.trim();
     return fontRule + `
 html:not([data-we-appearance=workbench]),html:not([data-we-appearance=workbench]) body,html:not([data-we-appearance=workbench]) #root,
 html[data-we-appearance=workbench][data-we-main=ready],html[data-we-appearance=workbench][data-we-main=ready] body,html[data-we-appearance=workbench][data-we-main=ready] #root{background:transparent!important}
@@ -210,9 +243,10 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   function syncAppearance() {
     const html = document.documentElement;
-    const workbench = state.fx?.appearance === 'workbench';
+    const mode = state.fx?.appearance;
+    const workbench = mode === 'workbench' || mode === 'uniform';
     if (workbench) {
-      if (html.getAttribute('data-we-appearance') !== 'workbench') html.setAttribute('data-we-appearance', 'workbench');
+      if (html.getAttribute('data-we-appearance') !== mode) html.setAttribute('data-we-appearance', mode);
     } else if (html.hasAttribute('data-we-appearance')) html.removeAttribute('data-we-appearance');
     // Never expose an unbacked transparent root when the host surface is not
     // mounted (navigation, new window, or a changed host selector).

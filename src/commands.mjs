@@ -187,6 +187,16 @@ export function applyCommand(cfg, cmd, ctx = {}) {
         out.message = '已切换到原有外观（视觉恢复点仍保留）';
         return out;
       }
+      if (mode === 'uniform') {
+        if (cfg.fx.appearance === mode) return { changed: false, libChanged: false, message: '全窗口统一磨砂已启用' };
+        if (!fs.existsSync(visualFiles(ctx).restore)) {
+          try { saveVisualRestorePoint(cfg, ctx); }
+          catch (e) { return fail(`无法建立视觉备份，未修改配置: ${e.message}`); }
+        }
+        cfg.fx.appearance = mode;
+        out.message = '全窗口统一磨砂已启用';
+        return out;
+      }
       if (cfg.fx.appearance === 'workbench') {
         return { changed: false, libChanged: false, message: '深色磨砂工作台已启用' };
       }
