@@ -46,8 +46,8 @@
     paused: false,
     diagFailed: null,
     timers: [],
-    switching: false,
-    switchingTo: -1,
+    pendingSwitch: null,
+    activeMediaKey: null,
     occluded: false,
     tint: null,            // wallpaper vote; manual override suppresses its glass attribute
     readabilityLum: null,  // sampled 32x32 mean relative luminance (page-local)
@@ -193,6 +193,13 @@ ${workbench(T, transcriptClear, transcriptClear)}
 html[data-we-appearance=workbench] main[class*="MainContentSurface"] :is(a,button,[role=button],[contenteditable=true]):focus-visible,
 html[data-we-appearance=workbench] aside.app-shell-left-panel :is(a,button,[role=button]):focus-visible{outline:2px solid #8EA7C4!important;outline-offset:2px!important}
 main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!important;background-image:none!important}
+/* Clear native surface fades and borders without changing wallpaper pixels or controls. */
+#root [class*="PageSurface-"],#root [class*="ConversationSidebar-"],
+#root main [class*="MainContentTopFade-"],
+#root main [class*="footer-"].pointer-events-none.absolute.inset-x-0::before,
+#root main [class*="footer-"].pointer-events-none.absolute.inset-x-0::after{
+ background:transparent!important;box-shadow:none!important;border-color:transparent!important;
+}
 `.trim();
   }
 
@@ -275,13 +282,13 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   // Diffed control surface (dsh applyLiveControls): pause/resume/setVolume are
   // only sent on change — a redundant resume() resets the renderer's frame
   // meter and would defeat the heartbeat below.
-  function syncLiveSlot(slot, isActive, occluded) {
+  function syncLiveSlot(slot, isActive, occluded, warming = false) {
     const ctl = slot.liveCtl;
     if (!ctl || !ctl.configured) return;
     const w = liveWp(slot);
     const wp = w && w.__wp;
     if (!wp) return;
-    const wantPlaying = !!(isActive && !state.paused && !occluded);
+    const wantPlaying = !occluded && (warming ? !document.hidden : isActive && !state.paused);
     if (ctl.appliedPlaying !== wantPlaying) {
       ctl.appliedPlaying = wantPlaying;
       try { wantPlaying ? wp.resume() : wp.pause(); } catch {}
@@ -299,11 +306,11 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
   }
 
   // __wpStats.frame() is {fps, running, ...} over a recent 500ms window.
-  // Ready = running && fps>0; a paused/occluded page legitimately reads
-  // {fps:0, running:false}, so the budget only ticks while playback is wanted
-  // (dsh: 暂停期不计时 — 无帧有正当理由就不算失败). Web wallpapers paint no
+  // A pending scene warms up muted even while normal playback is paused.
+  // Hidden or occluded windows do not spend the first-frame budget. Web wallpapers paint no
   // continuous frames — their readiness is "configured and settled".
   function liveReady(slot) {
+    const source = slot.el;
     const budget = clamp(num(slot.liveCtl?.budgetMs, 0), LIVE_READY_MS, 90000);
     const isWeb = slot.liveCtl?.cfg?.type === 'web';
     return new Promise((resolve) => {
@@ -312,9 +319,9 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
       let configuredAt = 0;
       const tick = () => {
         if (state.destroyed) return resolve(false);
-        if (slot.el == null) return resolve(false); // torn down meanwhile
+        if (slot.el !== source || state.pendingSwitch?.slot !== slot) return resolve(false);
         const now = Date.now();
-        const frozen = state.paused || state.occluded || document.hidden;
+        const frozen = state.occluded || document.hidden;
         if (!frozen) waited += now - last;
         last = now;
         const w = liveWp(slot);
@@ -324,7 +331,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
             ctl.configured = true;
             configuredAt = now;
             try { w.__wp.setWallpaper(ctl.cfg); } catch {}
-            syncLiveSlot(slot, true, state.occluded); // honor an already-paused state immediately
+            syncLiveSlot(slot, false, state.occluded, true);
             applyPropsTo(slot); // user's per-wallpaper overrides, if any
           }
           let st = null;
@@ -449,6 +456,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   function fillSlot(slotIdx, item, index, tier) {
     const slot = state.slots[slotIdx];
+    resetWrap(slot.wrap);
+    slot.wrap.style.opacity = '0';
     if (slot.el) { try { slot.el.pause && slot.el.pause(); } catch {} slot.wrap.innerHTML = ''; slot.el = null; slot.liveCtl = null; slot.still = null; }
     if (tier?.live && state.liveDoc) {
       const live = tier.live;
@@ -602,23 +611,26 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
 
   async function show(index) {
     if (state.destroyed) return;
-    if (index === state.currentIndex && state.active >= 0) return;
-    // 2.5s bridge pushes re-request the same index while nothing is active
-    // yet; superseding the in-flight load every 2.5s starves a slow canplay
-    // (READY_TIMEOUT is 9s) and the wallpaper never recovers after a failure.
-    if (state.switching && index === state.switchingTo) return;
     const item = state.items[index];
     if (!item) return;
-    // Preemptible switching (rapid 下一张 clicks): a newer show() supersedes an
-    // in-flight one — the stale run's awaits detect the bumped sequence and
-    // bail out instead of being silently swallowed (dsh: 切换意图永远最新优先)
-    state.switchSeq = (state.switchSeq || 0) + 1;
-    const seq = state.switchSeq;
+    // A periodic push should reuse a pending load. A playlist edit or a live
+    // source change can give the same index a different target.
+    const key = JSON.stringify([index, state.lastPayload?.listKey, state.itemsKey, item.kind, state.liveInfo?.type, state.liveInfo?.src]);
+    if (key === state.pendingSwitch?.key) return;
+    if (key === state.activeMediaKey && state.active >= 0) {
+      state.pendingSwitch = null;
+      state.currentIndex = index;
+      return;
+    }
+    const nextSlot = state.active === 0 ? 1 : 0;
+    const oldSlot = state.active;
+    const pending = { key, slot: state.slots[nextSlot] };
+    state.pendingSwitch = pending;
+    state.diagFailed = null;
     cancelAnalysis();
     state.readabilityLum = null;
     ensureStyle();
-    state.switchingTo = index;
-    const stale = () => seq !== state.switchSeq || state.destroyed;
+    const stale = () => state.pendingSwitch !== pending || state.destroyed;
     // degradation chain (dsh): live renderer -> author-embedded MP4 -> preview
     // media; a live failure is remembered for the session so the next rotation
     // onto this wallpaper skips the 15s first-frame budget entirely
@@ -627,10 +639,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     if (live) tiers.push({ live });
     if (item.id && state.sceneVideo) tiers.push({ sceneVideo: true });
     tiers.push(null); // plain media: the video file itself or the preview image
-    state.switching = true;
     try {
-      const nextSlot = state.active === 0 ? 1 : 0;
-      const oldSlot = state.active >= 0 ? state.active : -1;
       let el = null, kind = '';
       for (let t = 0; t < tiers.length; t++) {
         el = fillSlot(nextSlot, item, index, tiers[t]);
@@ -642,38 +651,39 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
         if (t === tiers.length - 1) { state.diagFailed = index; return; }
       }
       state.diagFailed = null;
-      if (kind === 'video' && !state.paused && !state.occluded) { try { await el.play(); } catch {} }
-      if (stale()) return; // a newer switch landed while the video warmed up
       if (kind === 'live') {
         const st = state.slots[nextSlot];
         if (st.still) {
           st.el.style.opacity = '1'; // renderer fades in over its own cached frame
-          setTimeout(() => { try { st.still?.remove(); } catch {} st.still = null; }, state.reducedMotion ? 120 : 900);
+          const still = st.still;
+          setTimeout(() => { still.remove(); if (st.still === still) st.still = null; }, state.reducedMotion ? 120 : 900);
         }
         // backfill the frame cache once the scene has settled (for instant
         // display the next time rotation lands on this wallpaper)
         const capId = item.id;
         if (capId) setTimeout(() => {
-          if (state.destroyed || state.currentIndex !== index || state.slots[state.active]?.el !== st.el) return;
-          captureLiveFrame(st.el, (url) => { if (url) sendFrame(capId, url); });
+          if (state.destroyed || state.currentIndex !== index || state.slots[state.active]?.el !== el) return;
+          captureLiveFrame(el, (url) => { if (url) sendFrame(capId, url); });
         }, 2500);
       }
       const dur = runTransition(state.slots[nextSlot].wrap, oldSlot >= 0 ? state.slots[oldSlot].wrap : null);
       state.active = nextSlot;
+      state.activeMediaKey = key;
       state.currentIndex = index;
       state.userThemeOverride = false; // new wallpaper — theme-follow resumes (dsh: 换下一张恢复)
       const old = oldSlot >= 0 ? state.slots[oldSlot] : null;
+      const oldEl = old?.el;
       setTimeout(() => {
-        if (state.destroyed || state.active !== nextSlot) return;
+        if (state.destroyed || state.slots[state.active]?.el !== el) return;
         resetWrap(state.slots[nextSlot].wrap);
-        if (old) {
+        if (old && old.el === oldEl && old !== state.pendingSwitch?.slot) {
           resetWrap(old.wrap);
           if (old.el && old.el.tagName === 'VIDEO') { try { old.el.pause(); } catch {} }
         }
       }, dur + 120);
       analyzeActiveWallpaper(item);
     } finally {
-      if (seq === state.switchSeq) { state.switching = false; state.switchingTo = -1; }
+      if (state.pendingSwitch === pending) state.pendingSwitch = null;
     }
   }
 
@@ -862,7 +872,7 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     for (const s of state.slots) {
       if (!s || !s.el) continue;
       const isActive = state.slots.indexOf(s) === state.active;
-      if (s.kind === 'live') { syncLiveSlot(s, isActive, occluded); continue; }
+      if (s.kind === 'live') { syncLiveSlot(s, isActive, occluded, !isActive && state.pendingSwitch?.slot === s); continue; }
       if (s.el.tagName !== 'VIDEO') continue;
       if (!isActive) { if (!s.el.paused) s.el.pause(); continue; }
       if (state.paused || occluded) { if (!s.el.paused) s.el.pause(); }
@@ -1264,6 +1274,8 @@ main div.pointer-events-none.absolute.inset-x-0.-top-8{background:transparent!im
     syncAppearance();
     if (!document.getElementById(BOX_ID)) {
       state.box = null; state.dim = null; state.active = -1; state.slots = [];
+      state.pendingSwitch = null;
+      state.activeMediaKey = null;
       const idx = state.currentIndex; state.currentIndex = -1;
       ensureBox(); applyFx();
       if (idx >= 0) show(idx);
