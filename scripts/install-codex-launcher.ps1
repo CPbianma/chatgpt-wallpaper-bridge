@@ -47,6 +47,18 @@ $codexExe = Join-Path $package.InstallLocation 'app\ChatGPT.exe'
 if (-not (Test-Path -LiteralPath $codexExe)) {
     throw "Codex executable was not found at: $codexExe"
 }
+$codexIcon = Join-Path $package.InstallLocation 'app\resources\icon-chatgpt.ico'
+$iconLocation = "$codexExe,0"
+if (Test-Path -LiteralPath $codexIcon) {
+    # Keep the shortcut icon valid after Store removes an older package version.
+    $iconDirectory = Join-Path $HOME '.chatgpt-wallpaper'
+    $launcherIcon = Join-Path $iconDirectory 'codex-launcher.ico'
+    if ($PSCmdlet.ShouldProcess($launcherIcon, 'Copy Codex icon to stable launcher storage')) {
+        New-Item -ItemType Directory -Path $iconDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $codexIcon -Destination $launcherIcon -Force
+    }
+    $iconLocation = "$launcherIcon,0"
+}
 
 $arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $launcherScript
 $shell = New-Object -ComObject WScript.Shell
@@ -64,7 +76,7 @@ function New-CodexWallpaperShortcut {
     $shortcut.TargetPath = $powershellExe
     $shortcut.Arguments = $arguments
     $shortcut.WorkingDirectory = $bridgeRoot
-    $shortcut.IconLocation = "$codexExe,0"
+    $shortcut.IconLocation = $iconLocation
     $shortcut.Description = 'Start Codex and ChatGPT Wallpaper Bridge together'
     $shortcut.WindowStyle = 7
     $shortcut.Save()

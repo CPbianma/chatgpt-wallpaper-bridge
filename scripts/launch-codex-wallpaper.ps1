@@ -35,6 +35,33 @@ function Show-LauncherError {
     }
 }
 
+function Get-CodexDevToolsEndpoint {
+    param([int]$Candidate)
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Candidate/json/list" -TimeoutSec 1
+        if ($response.StatusCode -ne 200) { return $null }
+        $pages = @($response.Content | ConvertFrom-Json)
+        if ($pages | Where-Object { $_.type -eq 'page' -and $_.url -like 'app://-/*' }) {
+            return "http://127.0.0.1:$Candidate/json/list"
+        }
+    }
+    catch {
+        return $null
+    }
+    return $null
+}
+
+function Find-DevToolsPort {
+    param([int]$Preferred)
+    for ($candidate = $Preferred; $candidate -le [Math]::Min(65535, $Preferred + 100); $candidate++) {
+        $occupied = Get-NetTCPConnection -State Listen -LocalPort $candidate -ErrorAction SilentlyContinue
+        if (-not $occupied) { return $candidate }
+        if (Get-CodexDevToolsEndpoint $candidate) { return $candidate }
+        Write-LauncherLog "Port $candidate is occupied without a responding Codex endpoint; trying the next port."
+    }
+    throw "No available local DevTools port found near $Preferred."
+}
+
 try {
     Write-LauncherLog 'Launcher started.'
 
@@ -47,6 +74,10 @@ try {
             $activePort = [int]$Matches[1]
             break
         }
+    }
+
+    if (-not $activePort -and (Get-CodexDevToolsEndpoint $Port)) {
+        $activePort = $Port
     }
 
     if ($mainProcesses -and -not $activePort) {
@@ -67,17 +98,13 @@ try {
             throw "Codex executable was not found at: $codexExe"
         }
 
-        $occupied = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
-        if ($occupied) {
-            throw "Port $Port is already in use by process $($occupied.OwningProcess). Choose another port or stop that process."
-        }
+        $activePort = Find-DevToolsPort $Port
 
-        Write-LauncherLog "Launching Codex $($package.Version) with DevTools on 127.0.0.1:$Port."
+        Write-LauncherLog "Launching Codex $($package.Version) with DevTools on 127.0.0.1:$activePort."
         Start-Process -FilePath $codexExe -ArgumentList @(
             '--remote-debugging-address=127.0.0.1',
-            "--remote-debugging-port=$Port"
+            "--remote-debugging-port=$activePort"
         ) | Out-Null
-        $activePort = $Port
     }
     else {
         Write-LauncherLog "Reusing Codex with DevTools on 127.0.0.1:$activePort."
@@ -88,8 +115,7 @@ try {
     for ($attempt = 1; $attempt -le 40; $attempt++) {
         Start-Sleep -Milliseconds 500
         try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -TimeoutSec 1
-            if ($response.StatusCode -eq 200) {
+            if (Get-CodexDevToolsEndpoint $activePort) {
                 $ready = $true
                 break
             }
