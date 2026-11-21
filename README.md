@@ -76,6 +76,28 @@ node src/bridge.mjs start
 
 首次启动且播放列表为空时，会自动把库里的全部视频壁纸收进轮换列表。桥接进程保持前台运行，`Ctrl+C` 或另开终端 `node src/bridge.mjs stop` 停止。
 
+### Codex 一键启动（无需每次打开命令行）
+
+部分 Microsoft Store 版 Codex 默认不会开放本工具所需的本机 DevTools 端口。运行一次下面的安装命令：
+
+```powershell
+npm run install-launcher
+```
+
+脚本会在桌面和开始菜单创建 **Codex + Wallpaper** 快捷方式。以后从这个入口启动即可：它优先使用 `127.0.0.1:12230`，端口被其他服务或无响应的残留监听占用时，在随后 100 个端口内选择可用端口。确认端口返回应用页面后，把桥接器隐藏运行，全程不需要管理员权限，也不会保留命令行窗口。
+
+Windows 更新应用后，旧版安装目录可能被移除。启动器每次查找当前 Codex 安装位置，快捷方式图标复制到 `~/.chatgpt-wallpaper/codex-launcher.ico`，避免指向被移除的版本路径。已经出现白纸图标时，重新执行 `npm run install-launcher` 可更新快捷方式。
+
+若退出应用后启动日志出现 `Port 12230 is already in use`，而所报进程已不存在，可使用本启动器的端口回退机制。桥接发现也对每个端口的响应与正文读取设置 1.5 秒超时，确保无响应的旧端口不会挡住新端口。应用尚未完全退出且未启用调试端口时，启动器会提示从托盘退出后重试。日志保存在 `~/.chatgpt-wallpaper/codex-launcher.log`。
+
+如果 Codex 已经从普通图标启动，请先从系统托盘彻底退出，再点新快捷方式。卸载快捷方式：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-codex-launcher.ps1 -Uninstall
+```
+
+DevTools 端点没有身份验证；启用期间，同一 Windows 用户下的其他进程可能读取或控制 Codex 页面。完全退出 Codex 并从普通图标启动即可关闭端点。
+
 日常建议开一次自启，以后开机即隐身运行、应用一开就挂上；自启同时会注册并立即启动**看门狗**——桥接进程万一被杀（安全软件强杀、taskkill 等），只要应用开着就会在约一分钟内自动拉起，重启记录写在 `watchdog.log`：
 
 ```powershell

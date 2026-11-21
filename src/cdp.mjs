@@ -40,7 +40,9 @@ export function devtoolsPorts(extra = []) {
 export async function appPages() {
   for (const port of devtoolsPorts()) {
     try {
-      const r = await fetch(`http://127.0.0.1:${port}/json/list`);
+      // An orphaned listener may accept TCP without ever returning a response.
+      // Bound both headers and body reads so fallback ports remain discoverable.
+      const r = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(1500) });
       if (!r.ok) continue;
       const pages = await r.json();
       const matches = pages.filter((p) => p.type === 'page' && p.url.startsWith('app://-/') && !p.url.toLowerCase().includes('avatar-overlay'));
